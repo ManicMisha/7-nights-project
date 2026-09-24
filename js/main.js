@@ -17,6 +17,8 @@ import { DayNightCycle } from './sky.js';
 import { WaterRenderer } from './water.js';
 import { UI } from './ui.js';
 import { Sound } from './sound.js';
+import { resolveFlags } from './flags.js';
+import { parseBenchOptions, Benchmark } from './bench.js';
 
 const $ = (id) => document.getElementById(id);
 const SETTINGS_KEY = '7nights.settings';
@@ -38,8 +40,10 @@ function saveSettings(settings) {
 }
 
 function resolveSeed() {
-  const param = new URLSearchParams(location.search).get('seed');
-  if (param) return param;
+  const params = new URLSearchParams(location.search);
+  if (params.get('seed')) return params.get('seed');
+  // Benchmarks default to a fixed world so runs are comparable.
+  if (params.has('bench')) return 'demo';
   return String(Math.floor(Math.random() * 1e9));
 }
 
@@ -48,6 +52,12 @@ class Game {
     this.canvas = $('game');
     this.settings = loadSettings();
     this.seedText = resolveSeed();
+    const { flags, unknown } = resolveFlags(location.search);
+    this.flags = flags;
+    if (unknown.length) console.warn(`Unknown feature flags ignored: ${unknown.join(', ')}`);
+    this.benchOptions = parseBenchOptions(location.search);
+    this.bench = null;
+    this.threeRevision = THREE.REVISION;
     this.state = 'loading'; // loading | menu | playing | inventory | dead
     this.timer = new THREE.Timer();
     this.timer.connect(document); // resets the delta after the tab was hidden
@@ -60,6 +70,8 @@ class Game {
     if (!gl2) throw new Error('This game needs WebGL 2, which your browser or GPU does not provide.');
     this.renderer = new THREE.WebGLRenderer({ canvas: this.canvas, context: gl2, antialias: false });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
+    // Count draw calls across all passes of a frame, not just the last one.
+    this.renderer.info.autoReset = false;
 
     this.scene = new THREE.Scene();
     this.camera = new THREE.PerspectiveCamera(this.settings.fov, 1, 0.1, 1000);
@@ -180,7 +192,7 @@ class Game {
     });
 
     this.canvas.addEventListener('click', () => {
-      if (this.state === 'playing' && !input.locked) this.play();
+      if (this.state === 'playing' && !input.locked && !this.bench) this.play();
     });
 
     this.player.onDamage = () => {
@@ -284,13 +296,22 @@ class Game {
     if (meshed >= needed || done) {
       this.world.frameBudgetMs = 7;
       this.player.spawnAt(0, 0);
-      this.setState('menu');
+      if (this.benchOptions) this.startBenchmark();
+      else this.setState('menu');
     }
+  }
+
+  /** Skips the menu and flies the fixed benchmark route (see bench.js). */
+  startBenchmark() {
+    this.bench = new Benchmark(this, this.benchOptions);
+    this.bench.start();
+    this.setState('playing');
   }
 
   frame(time) {
     this.timer.update(time);
-    const dt = Math.min(0.05, this.timer.getDelta());
+    const rawDt = this.timer.getDelta();
+    const dt = Math.min(0.05, rawDt);
     this.updateFps(dt);
 
     if (this.state === 'loading') {
@@ -302,6 +323,7 @@ class Game {
     const simDt = simulate ? dt : 0;
     const controls = this.state === 'playing' && this.input.locked;
 
+    if (this.bench) this.bench.update(rawDt);
     this.world.update(this.player.position.x, this.player.position.z);
     this.player.update(simDt, this.input, controls);
     this.interaction.update(simDt, this.input, controls);
@@ -330,6 +352,7 @@ class Game {
   }
 
   render() {
+    this.renderer.info.reset();
     this.water.render();
     this.renderer.render(this.scene, this.camera);
   }
@@ -361,9 +384,10 @@ class Game {
       `Light: sky ${light >> 4}  block ${light & 15}`,
       `Chunks: ${stats.meshed} meshed / ${stats.chunks} loaded`,
       `Triangles (world): ${Math.round(stats.triangles).toLocaleString()}`,
-      `Draw calls (last pass): ${info3.calls}`,
+      `Draw calls (frame): ${info3.calls}`,
       `Mobs: ${this.mobs.mobs.length}   Kills: ${this.mobs.kills}`,
       `Time: ${this.cycle.clock}   Seed: ${this.seedText}`,
+      `Three.js r${this.threeRevision}   Flags: ${Object.entries(this.flags).filter(([, on]) => on).map(([k]) => k).join(', ') || 'none'}`,
       `Target: ${target ? `${BLOCK_NAME[target.id]} @ ${target.x}, ${target.y}, ${target.z}` : '-'}`,
     ].join('\n');
   }

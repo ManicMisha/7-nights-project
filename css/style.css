@@ -302,3 +302,35 @@ kbd {
   .slot img { width: 26px; height: 26px; }
   .slots { grid-template-columns: repeat(9, 36px); }
 }
+
+/* ---------- Benchmark (?bench) ---------- */
+#bench-panel {
+  position: fixed;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 20;
+  padding: 8px 14px;
+  border-radius: 6px;
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-border);
+  font: 600 14px var(--font);
+}
+#bench-panel.done {
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: min(460px, calc(100vw - 32px));
+  padding: 16px 18px;
+  user-select: text;
+}
+#bench-panel h2 { margin: 0 0 10px; font-size: 18px; }
+#bench-panel dl {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 4px 12px;
+  margin: 0 0 14px;
+  font-weight: 400;
+}
+#bench-panel dt { color: var(--muted); }
+#bench-panel dd { margin: 0; font-family: var(--mono); overflow-wrap: anywhere; }
+#bench-panel button { margin-right: 8px; }
