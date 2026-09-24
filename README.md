@@ -9,6 +9,8 @@ requests.
   `npx http-server .`, then open the printed URL. Opening `index.html`
   directly from disk won't work, because browsers block ES modules on
   `file://`.
+- **Play online:** https://manicmisha.github.io/7-nights-project/ (GitHub Pages,
+  deployed from `main`).
 - **Seeds:** `index.html?seed=anything`. The same seed always produces the
   same world.
 - **Requires** WebGL 2 (used for the mip-mapped block texture array).
