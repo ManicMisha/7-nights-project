@@ -2,8 +2,8 @@
 // that stores chunks and runs the real lighting engine.
 
 import { Chunk, chunkKey, cellIndex } from '../js/chunk.js';
-import { CHUNK_SIZE } from '../js/config.js';
-import { MAT } from '../js/materials.js';
+import { CHUNK_SIZE, WORLD_HEIGHT } from '../js/config.js';
+import { MAT, DENSITY_PER_METRE } from '../js/materials.js';
 import { LightEngine } from '../js/lighting.js';
 
 export class TestWorld {
@@ -66,3 +66,24 @@ export function flatStone(height) {
   };
 }
 
+/**
+ * A world generator from a signed-distance function f(x, y, z) in metres
+ * (> 0 inside the terrain), sampled at cell centres like the real one.
+ */
+export function sdfGenerator(f) {
+  return {
+    generate(chunk) {
+      for (let y = 0; y < WORLD_HEIGHT; y++) {
+        for (let z = 0; z < CHUNK_SIZE; z++) {
+          for (let x = 0; x < CHUNK_SIZE; x++) {
+            const v = f(chunk.cx * CHUNK_SIZE + x + 0.5, y + 0.5, chunk.cz * CHUNK_SIZE + z + 0.5);
+            const i = cellIndex(x, y, z);
+            const d = Math.max(-127, Math.min(127, Math.round(v * DENSITY_PER_METRE)));
+            chunk.density[i] = v > 0 ? Math.max(1, d) : Math.min(0, d);
+            chunk.materials[i] = v > 0 ? MAT.STONE : MAT.AIR;
+          }
+        }
+      }
+    },
+  };
+}

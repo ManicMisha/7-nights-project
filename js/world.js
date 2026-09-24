@@ -11,12 +11,15 @@ import { MAT, MAT_SOLID, MAT_TERRAIN, DENSITY_EMPTY, defaultDensity } from './ma
 import { ChunkDelta, unpackMaterial, unpackDensity, encodeChunkDelta } from './save.js';
 import { LightEngine } from './lighting.js';
 import { buildChunkGeometry } from './mesher.js';
+import { buildSmoothGeometry } from './surfacenets.js';
 
 export class World {
   constructor(scene, generator, materials) {
     this.scene = scene;
     this.generator = generator;
-    this.materials = materials; // { terrain, water }
+    this.materials = materials; // { terrain, smooth, water }
+    // Draw terrain as a smooth surface (Surface Nets) instead of cubes.
+    this.smoothTerrain = true;
     this.chunks = new Map();
     this.deltas = new Map(); // chunkKey → ChunkDelta (the player's changes)
     this.unsaved = new Set(); // chunkKeys whose delta changed since the last save
@@ -241,12 +244,31 @@ export class World {
       Math.sqrt(2 * (CHUNK_SIZE / 2) ** 2 + ((chunk.maxY - chunk.minY + 1) / 2) ** 2) + 1,
     );
     let triangles = 0;
+    if (this.smoothTerrain) {
+      const terrain = buildSmoothGeometry(this, chunk);
+      if (terrain) {
+        chunk.smoothMesh = this.createMesh(terrain, this.materials.smooth, sphere, ox, oz, {
+          position: [terrain.position, 3, false],
+          normal: [terrain.normal, 3, true],
+          aColour: [terrain.colour, 4, true],
+          aLight: [terrain.light, 4, true],
+        });
+        triangles += terrain.index.length / 3;
+      }
+    }
     if (geo.solid) {
-      chunk.opaqueMesh = this.createMesh(geo.solid, this.materials.terrain, sphere, ox, oz, true);
+      chunk.opaqueMesh = this.createMesh(geo.solid, this.materials.terrain, sphere, ox, oz, {
+        position: [geo.solid.position, 3, false],
+        aLight: [geo.solid.light, 4, true],
+        aTex: [geo.solid.tex, 4, false],
+      });
       triangles += geo.solid.index.length / 3;
     }
     if (geo.water) {
-      chunk.waterMesh = this.createMesh(geo.water, this.materials.water, sphere, ox, oz, false);
+      chunk.waterMesh = this.createMesh(geo.water, this.materials.water, sphere, ox, oz, {
+        position: [geo.water.position, 3, false],
+        aLight: [geo.water.light, 4, true],
+      });
       chunk.waterMesh.userData.isWater = true;
       triangles += geo.water.index.length / 3;
     }
@@ -255,13 +277,14 @@ export class World {
     chunk.dirty = false;
   }
 
-  createMesh(data, material, sphere, ox, oz, withTex) {
+  /** attributes: name → [typed array, item size, normalized]. */
+  createMesh(data, material, sphere, ox, oz, attributes) {
     const g = new THREE.BufferGeometry();
-    g.setAttribute('position', new THREE.BufferAttribute(data.position, 3));
-    g.setAttribute('aLight', new THREE.BufferAttribute(data.light, 4, true));
-    if (withTex) g.setAttribute('aTex', new THREE.BufferAttribute(data.tex, 4, false));
+    for (const [name, [array, size, normalized]] of Object.entries(attributes)) {
+      g.setAttribute(name, new THREE.BufferAttribute(array, size, normalized));
+    }
     g.setIndex(new THREE.BufferAttribute(data.index, 1));
-    // Positions are fixed-point, so give three.js the real bounds up front.
+    // Cube positions are fixed-point, so give three.js the real bounds up front.
     g.boundingSphere = sphere.clone();
     g.boundingBox = new THREE.Box3(new THREE.Vector3(0, 0, 0), new THREE.Vector3(CHUNK_SIZE, WORLD_HEIGHT, CHUNK_SIZE));
     const mesh = new THREE.Mesh(g, material);

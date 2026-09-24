@@ -5,7 +5,9 @@ import { DEFAULT_SETTINGS, CHUNK_SIZE } from './config.js';
 import { hashSeed } from './noise.js';
 import { MAT_NAME } from './materials.js';
 import { TextureLibrary } from './textures.js';
-import { sharedUniforms, createTerrainMaterial, createWaterMaterial } from './shaders.js';
+import {
+  sharedUniforms, createTerrainMaterial, createSmoothTerrainMaterial, createWaterMaterial,
+} from './shaders.js';
 import { TerrainGenerator, BIOME_NAME } from './worldgen.js';
 import { World } from './world.js';
 import { Player } from './player.js';
@@ -72,12 +74,14 @@ class Game {
     this.textures = new TextureLibrary();
     this.materials = {
       terrain: createTerrainMaterial(this.textures.array),
+      smooth: createSmoothTerrainMaterial(),
       water: createWaterMaterial(),
     };
 
     this.generator = new TerrainGenerator(hashSeed(this.seedText));
     this.world = new World(this.scene, this.generator, this.materials);
     this.world.setRenderDistance(this.settings.renderDistance);
+    this.world.smoothTerrain = this.flags.smoothTerrain;
 
     this.input = new Input(this.canvas);
     this.player = new Player(this.camera, this.world);

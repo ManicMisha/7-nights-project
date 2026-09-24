@@ -1,4 +1,9 @@
-// Chunk mesher: turns a chunk's blocks + light into compact vertex buffers.
+// Cube mesher: turns block-style cells + light into compact vertex buffers.
+//
+// With smooth terrain on (the default), terrain is drawn by surfacenets.js
+// and this mesher only draws water and the legacy prototype blocks (trees,
+// plants, placed blocks) until later phases replace them. With the
+// `smoothTerrain` flag off it draws everything as cubes, as before.
 //
 // • Hidden faces between opaque blocks are culled.
 // • Every vertex gets smooth light (average of the 4 cells touching that
@@ -10,20 +15,24 @@
 //   water goes into a second one so it can use the reflective shader.
 
 import {
-  MAT, RENDER, MAT_RENDER, MAT_OPAQUE, MAT_TILES,
+  MAT, RENDER, MAT_RENDER, MAT_OPAQUE, MAT_TILES, MAT_TERRAIN,
 } from './materials.js';
-import { CHUNK_SIZE, WORLD_HEIGHT } from './config.js';
+import { CHUNK_SIZE, WORLD_HEIGHT, SEA_LEVEL, WATER_SURFACE_Y } from './config.js';
 import { cellIndex } from './chunk.js';
 
 const P = CHUNK_SIZE + 2; // padded width
 const PY = WORLD_HEIGHT + 2; // padded height
 const pBlocks = new Uint8Array(P * P * PY);
 const pLight = new Uint8Array(P * P * PY);
+const pDens = new Int8Array(P * P * PY);
 const pidx = (x, y, z) => ((y + 1) * P + (z + 1)) * P + (x + 1);
 const offset = (dx, dy, dz) => (dy * P + dz) * P + dx;
 
 const FIXED = 16; // position fixed-point scale
-const WATER_DROP = 0.125; // how far a water surface sits below the block top
+const WATER_DROP = SEA_LEVEL + 1 - WATER_SURFACE_Y; // how far a water surface sits below the cell top
+
+// Set per build: true when terrain is drawn by the smooth mesher instead.
+let smooth = false;
 
 // Face table. U × V = normal, so corners (0,0) (1,0) (1,1) (0,1) wind CCW.
 const FACES = [
@@ -148,6 +157,7 @@ function gatherPadded(world, chunk, y0, y1) {
           for (let x = xs; x <= xe; x++, pi++, si++) {
             pBlocks[pi] = src ? src.materials[si] : MAT.STONE;
             pLight[pi] = src ? src.light[si] : 0;
+            pDens[pi] = src ? src.density[si] : 127;
           }
         }
       }
@@ -159,11 +169,13 @@ function fillBoundaryLayer(y, block, light) {
   const start = pidx(-1, y, -1);
   pBlocks.fill(block, start, start + P * P);
   pLight.fill(light, start, start + P * P);
+  pDens.fill(block === MAT.AIR ? -127 : 127, start, start + P * P);
 }
 
 export function buildChunkGeometry(world, chunk) {
   solid.reset();
   water.reset();
+  smooth = Boolean(world.smoothTerrain);
   if (chunk.minY > chunk.maxY) return { solid: null, water: null };
 
   const y0 = chunk.minY;
@@ -178,6 +190,10 @@ export function buildChunkGeometry(world, chunk) {
       for (let x = 0; x < CHUNK_SIZE; x++, p++) {
         const id = pBlocks[p];
         if (id === MAT.AIR) continue;
+        if (smooth && MAT_TERRAIN[id]) {
+          if (y === SEA_LEVEL) emitShoreWater(x, y, z, p);
+          continue;
+        }
         const render = MAT_RENDER[id];
         if (render === RENDER.CROSS) emitCross(x, y, z, id, p);
         else if (render === RENDER.WATER) emitWater(x, y, z, p);
@@ -192,7 +208,8 @@ function emitBlock(x, y, z, id, p) {
   for (let f = 0; f < 6; f++) {
     const face = FACES[f];
     const nb = pBlocks[p + face.nOff];
-    if (MAT_OPAQUE[nb]) continue;
+    // Smooth terrain doesn't fill its cells like a cube, so don't hide faces behind it.
+    if (MAT_OPAQUE[nb] && !(smooth && MAT_TERRAIN[nb])) continue;
     if (nb === id && id === MAT.GLASS) continue;
     const layer = MAT_TILES[id * 3 + face.group];
     const fp = p + face.nOff;
@@ -233,8 +250,19 @@ const CROSS_QUADS = [
   [[0.85, 0, 0.15], [0.15, 0, 0.85], [0.15, 1, 0.85], [0.85, 1, 0.15]],
 ];
 
+/** Height offset that sits a sprite on the smooth ground below it (0 in cube mode). */
+function groundOffset(p) {
+  if (!smooth) return 0;
+  const below = pDens[p - P * P];
+  const here = pDens[p];
+  if (below <= 0 || here > 0) return 0;
+  // The surface crosses between the centres of the two cells.
+  return below / (below - here) - 0.5;
+}
+
 function emitCross(x, y, z, id, p) {
   const layer = MAT_TILES[id * 3 + 2];
+  const yo = groundOffset(p);
   const l = pLight[p];
   const sky = (l >> 4) * 17;
   const blk = (l & 15) * 17;
@@ -244,7 +272,7 @@ function emitCross(x, y, z, id, p) {
     for (const order of [[0, 1, 2, 3], [1, 0, 3, 2]]) {
       for (const k of order) {
         const [cx, cy, cz] = q[k];
-        solid.vertex(x + cx, y + cy, z + cz, k === 1 || k === 2 ? 1 : 0, cy, layer, sky, blk, ao);
+        solid.vertex(x + cx, y + yo + cy, z + cz, k === 1 || k === 2 ? 1 : 0, cy, layer, sky, blk, ao);
       }
       solid.quad(false);
     }
@@ -267,4 +295,23 @@ function emitWater(x, y, z, p) {
     }
     water.quad(false);
   }
+}
+
+/**
+ * Smooth terrain at sea level next to water can dip below the water line
+ * inside its cell. Extend the water surface over it; wherever the ground is
+ * higher, the terrain simply hides it.
+ */
+function emitShoreWater(x, y, z, p) {
+  if (pBlocks[p + offset(0, 1, 0)] !== MAT.AIR) return;
+  let nearWater = false;
+  for (let f = 0; f < 4 && !nearWater; f++) nearWater = pBlocks[p + FACES[f].nOff] === MAT.WATER;
+  if (!nearWater) return;
+  const l = pLight[p + offset(0, 1, 0)];
+  const top = FACES[4];
+  for (let c = 0; c < 4; c++) {
+    const [px, , pz] = top.corners[c].pos;
+    water.vertex(x + px, y + 1 - WATER_DROP, z + pz, 0, 0, 0, (l >> 4) * 17, (l & 15) * 17, 255);
+  }
+  water.quad(false);
 }

@@ -52,7 +52,8 @@ export class Chunk {
     this.meshed = false;
     this.dirty = false; // needs a re-mesh
 
-    this.opaqueMesh = null;
+    this.smoothMesh = null; // smooth terrain (Surface Nets)
+    this.opaqueMesh = null; // cube-drawn blocks
     this.waterMesh = null;
   }
 
@@ -98,11 +99,12 @@ export class Chunk {
   }
 
   disposeMeshes(scene) {
-    for (const mesh of [this.opaqueMesh, this.waterMesh]) {
+    for (const mesh of [this.smoothMesh, this.opaqueMesh, this.waterMesh]) {
       if (!mesh) continue;
       scene.remove(mesh);
       mesh.geometry.dispose();
     }
+    this.smoothMesh = null;
     this.opaqueMesh = null;
     this.waterMesh = null;
   }
