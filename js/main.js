@@ -19,6 +19,7 @@ import { UI } from './ui.js';
 import { Sound } from './sound.js';
 import { resolveFlags } from './flags.js';
 import { parseBenchOptions, Benchmark } from './bench.js';
+import { SaveManager, resolveWorldId } from './persistence.js';
 
 const $ = (id) => document.getElementById(id);
 const SETTINGS_KEY = '7nights.settings';
@@ -39,19 +40,11 @@ function saveSettings(settings) {
   }
 }
 
-function resolveSeed() {
-  const params = new URLSearchParams(location.search);
-  if (params.get('seed')) return params.get('seed');
-  // Benchmarks default to a fixed world so runs are comparable.
-  if (params.has('bench')) return 'demo';
-  return String(Math.floor(Math.random() * 1e9));
-}
-
 class Game {
   constructor() {
     this.canvas = $('game');
     this.settings = loadSettings();
-    this.seedText = resolveSeed();
+    this.seedText = resolveWorldId(location.search);
     const { flags, unknown } = resolveFlags(location.search);
     this.flags = flags;
     if (unknown.length) console.warn(`Unknown feature flags ignored: ${unknown.join(', ')}`);
@@ -100,6 +93,9 @@ class Game {
     this.water.reflections = this.settings.waterReflections;
     this.ui = new UI(this.textures, this.inventory);
 
+    this.saves = new SaveManager(this);
+    this.saves.load().then(() => this.updateSaveStatus());
+
     this.bindEvents();
     this.bindMenu();
     this.onResize();
@@ -133,6 +129,14 @@ class Game {
     $('death').hidden = state !== 'dead';
     $('hud').hidden = state === 'loading';
     $('play').textContent = this.started ? 'Resume' : 'Play';
+    if (state === 'menu') {
+      if (this.started) this.saves.save(); // pausing is a natural save point
+      this.updateSaveStatus();
+    }
+  }
+
+  updateSaveStatus() {
+    $('save-status').textContent = this.saves.statusText;
   }
 
   play() {
@@ -143,6 +147,12 @@ class Game {
 
   bindEvents() {
     const input = this.input;
+    // Save when the tab is hidden or closed (the browser may not wait for
+    // the write to finish on close, which is why autosave also runs).
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'hidden') this.saves.save();
+    });
+    window.addEventListener('pagehide', () => this.saves.save());
     input.on('lockchange', (locked) => {
       if (locked) {
         this.setState('playing');
@@ -274,6 +284,12 @@ class Game {
       location.href = url.toString();
     });
 
+    $('delete-world').addEventListener('click', async () => {
+      if (!window.confirm(`Delete the saved world "${this.seedText}"? This can't be undone.`)) return;
+      await this.saves.deleteWorld();
+      location.reload();
+    });
+
     $('play').addEventListener('click', () => this.play());
     $('respawn').addEventListener('click', () => {
       this.player.respawn();
@@ -288,16 +304,21 @@ class Game {
 
   /** Streams the spawn area in with a generous budget before play starts. */
   updateLoading() {
+    if (!this.saves.ready) return; // the save must be read before chunks generate
+    const center = this.saves.loadCenter;
     this.world.frameBudgetMs = 40;
-    const done = this.world.update(0.5, 0.5);
-    const needed = this.world.ringOffsets.filter((o) => o.d <= 3).length;
-    const meshed = this.world.ringOffsets.filter((o) => o.d <= 3 && this.world.getChunk(o.dx, o.dz)?.meshed).length;
-    $('progress-bar').style.width = `${Math.round((meshed / needed) * 100)}%`;
-    if (meshed >= needed || done) {
+    const done = this.world.update(center.x, center.z);
+    const ccx = Math.floor(center.x) >> 4;
+    const ccz = Math.floor(center.z) >> 4;
+    const near = this.world.ringOffsets.filter((o) => o.d <= 3);
+    const meshed = near.filter((o) => this.world.getChunk(ccx + o.dx, ccz + o.dz)?.meshed).length;
+    $('progress-bar').style.width = `${Math.round((meshed / near.length) * 100)}%`;
+    if (meshed >= near.length || done) {
       this.world.frameBudgetMs = 7;
-      this.player.spawnAt(0, 0);
+      if (!this.saves.applyRestored()) this.player.spawnAt(0, 0);
       if (this.benchOptions) this.startBenchmark();
       else this.setState('menu');
+      if (this.saves.notice) this.ui.toast(this.saves.notice);
     }
   }
 
@@ -328,6 +349,7 @@ class Game {
     this.player.update(simDt, this.input, controls);
     this.interaction.update(simDt, this.input, controls);
     this.mobs.update(simDt);
+    this.saves.update(simDt);
     this.cycle.update(simDt, this.camera, this.fogFar);
     sharedUniforms.uTime.value += dt;
     sharedUniforms.uUnderwater.value = this.player.headInWater ? 1 : 0;
@@ -367,6 +389,12 @@ class Game {
     }
   }
 
+  chunkDebugLine(x, z) {
+    const chunk = this.world.getChunk(x >> 4, z >> 4);
+    if (!chunk) return 'Chunk data: -';
+    return `Chunk data: ${chunk.harvestables.length} harvestables, ${chunk.pieces.size} pieces, ${this.world.deltaFor(chunk.cx, chunk.cz).cells.size} edited cells`;
+  }
+
   debugText() {
     const p = this.player.position;
     const bx = Math.floor(p.x);
@@ -388,7 +416,9 @@ class Game {
       `Mobs: ${this.mobs.mobs.length}   Kills: ${this.mobs.kills}`,
       `Time: ${this.cycle.clock}   Seed: ${this.seedText}`,
       `Three.js r${this.threeRevision}   Flags: ${Object.entries(this.flags).filter(([, on]) => on).map(([k]) => k).join(', ') || 'none'}`,
-      `Target: ${target ? `${MAT_NAME[target.id]} @ ${target.x}, ${target.y}, ${target.z}` : '-'}`,
+      `Target: ${target ? `${MAT_NAME[target.id]} @ ${target.x}, ${target.y}, ${target.z} (density ${this.world.getDensity(target.x, target.y, target.z)})` : '-'}`,
+      this.chunkDebugLine(bx, bz),
+      `Save: ${this.saves.statusText}  Unsaved chunks: ${this.world.unsaved.size}`,
     ].join('\n');
   }
 }
