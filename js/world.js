@@ -109,6 +109,33 @@ export class World {
     return chunk.density[cellIndex(x & 15, y, z & 15)];
   }
 
+  /**
+   * Terrain density at any point, interpolated between cell centres
+   * (> 0 inside the terrain). Unloaded chunks count as solid.
+   */
+  densityAt(x, y, z) {
+    const fx = x - 0.5;
+    const fy = y - 0.5;
+    const fz = z - 0.5;
+    const x0 = Math.floor(fx);
+    const y0 = Math.floor(fy);
+    const z0 = Math.floor(fz);
+    const tx = fx - x0;
+    const ty = fy - y0;
+    const tz = fz - z0;
+    const d = (xx, yy, zz) => {
+      const v = this.getDensity(xx, yy, zz);
+      return v === null ? 127 : v;
+    };
+    const c00 = d(x0, y0, z0) + (d(x0 + 1, y0, z0) - d(x0, y0, z0)) * tx;
+    const c10 = d(x0, y0 + 1, z0) + (d(x0 + 1, y0 + 1, z0) - d(x0, y0 + 1, z0)) * tx;
+    const c01 = d(x0, y0, z0 + 1) + (d(x0 + 1, y0, z0 + 1) - d(x0, y0, z0 + 1)) * tx;
+    const c11 = d(x0, y0 + 1, z0 + 1) + (d(x0 + 1, y0 + 1, z0 + 1) - d(x0, y0 + 1, z0 + 1)) * tx;
+    const c0 = c00 + (c10 - c00) * ty;
+    const c1 = c01 + (c11 - c01) * ty;
+    return c0 + (c1 - c0) * tz;
+  }
+
   /** True if the cell blocks movement. Unloaded terrain counts as solid. */
   isSolid(x, y, z) {
     const id = this.getMaterial(x, y, z);
