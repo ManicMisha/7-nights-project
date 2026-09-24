@@ -26,10 +26,11 @@ export class Chunk {
     this.cz = cz;
     this.key = chunkKey(cx, cz);
     this.materials = new Uint8Array(CHUNK_VOLUME);
-    // Signed density per cell, −127…127. A cell is filled by its material
-    // when density > 0 and empty when ≤ 0 (so AIR always has density ≤ 0).
-    // Until the smooth mesher arrives (Phase 2) cells are either fully
-    // filled or fully empty.
+    // Signed terrain density per cell, −127…127, sampled at the cell centre
+    // (DENSITY_PER_METRE units per metre from the surface). The cell is
+    // filled with terrain when density > 0 (its material is then a terrain
+    // material) and empty when ≤ 0 (air, water or a legacy block). The
+    // smooth terrain surface is where density crosses zero.
     this.density = new Int8Array(CHUNK_VOLUME);
     // Light nibbles: high 4 bits = sky light, low 4 bits = block light.
     this.light = new Uint8Array(CHUNK_VOLUME);
@@ -51,11 +52,12 @@ export class Chunk {
     this.meshed = false;
     this.dirty = false; // needs a re-mesh
 
-    this.opaqueMesh = null;
+    this.smoothMesh = null; // smooth terrain (Surface Nets)
+    this.opaqueMesh = null; // cube-drawn blocks
     this.waterMesh = null;
   }
 
-  /** Sets every cell's density from its material (full or empty). */
+  /** Sets every cell's density from its material alone (full or empty). */
   fillDensityFromMaterials() {
     const { materials, density } = this;
     for (let i = 0; i < CHUNK_VOLUME; i++) density[i] = defaultDensity(materials[i]);
@@ -97,11 +99,12 @@ export class Chunk {
   }
 
   disposeMeshes(scene) {
-    for (const mesh of [this.opaqueMesh, this.waterMesh]) {
+    for (const mesh of [this.smoothMesh, this.opaqueMesh, this.waterMesh]) {
       if (!mesh) continue;
       scene.remove(mesh);
       mesh.geometry.dispose();
     }
+    this.smoothMesh = null;
     this.opaqueMesh = null;
     this.waterMesh = null;
   }

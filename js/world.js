@@ -7,16 +7,19 @@
 import * as THREE from 'three';
 import { Chunk, chunkKey, cellIndex } from './chunk.js';
 import { CHUNK_SIZE, WORLD_HEIGHT } from './config.js';
-import { MAT, MAT_SOLID, DENSITY_EMPTY, defaultDensity } from './materials.js';
+import { MAT, MAT_SOLID, MAT_TERRAIN, DENSITY_EMPTY, defaultDensity } from './materials.js';
 import { ChunkDelta, unpackMaterial, unpackDensity, encodeChunkDelta } from './save.js';
 import { LightEngine } from './lighting.js';
 import { buildChunkGeometry } from './mesher.js';
+import { buildSmoothGeometry } from './surfacenets.js';
 
 export class World {
   constructor(scene, generator, materials) {
     this.scene = scene;
     this.generator = generator;
-    this.materials = materials; // { terrain, water }
+    this.materials = materials; // { terrain, smooth, water }
+    // Draw terrain as a smooth surface (Surface Nets) instead of cubes.
+    this.smoothTerrain = true;
     this.chunks = new Map();
     this.deltas = new Map(); // chunkKey → ChunkDelta (the player's changes)
     this.unsaved = new Set(); // chunkKeys whose delta changed since the last save
@@ -106,6 +109,33 @@ export class World {
     return chunk.density[cellIndex(x & 15, y, z & 15)];
   }
 
+  /**
+   * Terrain density at any point, interpolated between cell centres
+   * (> 0 inside the terrain). Unloaded chunks count as solid.
+   */
+  densityAt(x, y, z) {
+    const fx = x - 0.5;
+    const fy = y - 0.5;
+    const fz = z - 0.5;
+    const x0 = Math.floor(fx);
+    const y0 = Math.floor(fy);
+    const z0 = Math.floor(fz);
+    const tx = fx - x0;
+    const ty = fy - y0;
+    const tz = fz - z0;
+    const d = (xx, yy, zz) => {
+      const v = this.getDensity(xx, yy, zz);
+      return v === null ? 127 : v;
+    };
+    const c00 = d(x0, y0, z0) + (d(x0 + 1, y0, z0) - d(x0, y0, z0)) * tx;
+    const c10 = d(x0, y0 + 1, z0) + (d(x0 + 1, y0 + 1, z0) - d(x0, y0 + 1, z0)) * tx;
+    const c01 = d(x0, y0, z0 + 1) + (d(x0 + 1, y0, z0 + 1) - d(x0, y0, z0 + 1)) * tx;
+    const c11 = d(x0, y0 + 1, z0 + 1) + (d(x0 + 1, y0 + 1, z0 + 1) - d(x0, y0 + 1, z0 + 1)) * tx;
+    const c0 = c00 + (c10 - c00) * ty;
+    const c1 = c01 + (c11 - c01) * ty;
+    return c0 + (c1 - c0) * tz;
+  }
+
   /** True if the cell blocks movement. Unloaded terrain counts as solid. */
   isSolid(x, y, z) {
     const id = this.getMaterial(x, y, z);
@@ -135,8 +165,9 @@ export class World {
 
   /**
    * Sets a cell's material and density, records the change for saving,
-   * updates lighting and synchronously re-meshes affected chunks. A cell
-   * whose density is ≤ 0 is empty, so it's stored as AIR.
+   * updates lighting and synchronously re-meshes affected chunks.
+   * Density describes terrain: terrain whose density drops to ≤ 0 is gone
+   * (the cell becomes AIR), and non-terrain materials never have density > 0.
    */
   setCell(x, y, z, material, density) {
     if (y < 0 || y >= WORLD_HEIGHT) return false;
@@ -144,9 +175,10 @@ export class World {
     if (!chunk || !chunk.generated) return false;
     let id = material;
     let d = Math.max(-127, Math.min(127, Math.round(density)));
-    if (id === MAT.AIR || d <= 0) {
-      id = MAT.AIR;
-      d = Math.min(d, 0);
+    if (MAT_TERRAIN[id]) {
+      if (d <= 0) id = MAT.AIR;
+    } else if (d > 0) {
+      d = DENSITY_EMPTY;
     }
     const lx = x & 15;
     const lz = z & 15;
@@ -208,8 +240,7 @@ export class World {
 
   generateChunk(cx, cz) {
     const chunk = new Chunk(cx, cz);
-    this.generator.generate(chunk);
-    chunk.fillDensityFromMaterials();
+    this.generator.generate(chunk); // fills materials, densities and harvestables
     // Re-apply the player's changes. The chunk shares the delta's piece and
     // harvest maps, so changes to either are recorded automatically.
     const delta = this.deltaFor(cx, cz);
@@ -240,12 +271,31 @@ export class World {
       Math.sqrt(2 * (CHUNK_SIZE / 2) ** 2 + ((chunk.maxY - chunk.minY + 1) / 2) ** 2) + 1,
     );
     let triangles = 0;
+    if (this.smoothTerrain) {
+      const terrain = buildSmoothGeometry(this, chunk);
+      if (terrain) {
+        chunk.smoothMesh = this.createMesh(terrain, this.materials.smooth, sphere, ox, oz, {
+          position: [terrain.position, 3, false],
+          normal: [terrain.normal, 3, true],
+          aColour: [terrain.colour, 4, true],
+          aLight: [terrain.light, 4, true],
+        });
+        triangles += terrain.index.length / 3;
+      }
+    }
     if (geo.solid) {
-      chunk.opaqueMesh = this.createMesh(geo.solid, this.materials.terrain, sphere, ox, oz, true);
+      chunk.opaqueMesh = this.createMesh(geo.solid, this.materials.terrain, sphere, ox, oz, {
+        position: [geo.solid.position, 3, false],
+        aLight: [geo.solid.light, 4, true],
+        aTex: [geo.solid.tex, 4, false],
+      });
       triangles += geo.solid.index.length / 3;
     }
     if (geo.water) {
-      chunk.waterMesh = this.createMesh(geo.water, this.materials.water, sphere, ox, oz, false);
+      chunk.waterMesh = this.createMesh(geo.water, this.materials.water, sphere, ox, oz, {
+        position: [geo.water.position, 3, false],
+        aLight: [geo.water.light, 4, true],
+      });
       chunk.waterMesh.userData.isWater = true;
       triangles += geo.water.index.length / 3;
     }
@@ -254,13 +304,14 @@ export class World {
     chunk.dirty = false;
   }
 
-  createMesh(data, material, sphere, ox, oz, withTex) {
+  /** attributes: name → [typed array, item size, normalized]. */
+  createMesh(data, material, sphere, ox, oz, attributes) {
     const g = new THREE.BufferGeometry();
-    g.setAttribute('position', new THREE.BufferAttribute(data.position, 3));
-    g.setAttribute('aLight', new THREE.BufferAttribute(data.light, 4, true));
-    if (withTex) g.setAttribute('aTex', new THREE.BufferAttribute(data.tex, 4, false));
+    for (const [name, [array, size, normalized]] of Object.entries(attributes)) {
+      g.setAttribute(name, new THREE.BufferAttribute(array, size, normalized));
+    }
     g.setIndex(new THREE.BufferAttribute(data.index, 1));
-    // Positions are fixed-point, so give three.js the real bounds up front.
+    // Cube positions are fixed-point, so give three.js the real bounds up front.
     g.boundingSphere = sphere.clone();
     g.boundingBox = new THREE.Box3(new THREE.Vector3(0, 0, 0), new THREE.Vector3(CHUNK_SIZE, WORLD_HEIGHT, CHUNK_SIZE));
     const mesh = new THREE.Mesh(g, material);

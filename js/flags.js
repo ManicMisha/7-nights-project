@@ -12,6 +12,10 @@
 
 export const FEATURE_FLAGS = {
   // name: { default: false, description: 'What it switches on' },
+  smoothTerrain: {
+    default: true,
+    description: 'Draw terrain as a smooth surface (Surface Nets) with smooth-ground physics; off shows the old cubes. Remove once the cube path is retired.',
+  },
 };
 
 /**

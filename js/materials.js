@@ -101,13 +101,56 @@ for (const [id, name, render, solid, opaque, emit, atten, hardness, drop, tiles]
   MAT_TILES[id * 3 + 2] = tiles[2];
 }
 
+/**
+ * Terrain materials: the ones drawn as smooth ground by the Surface Nets
+ * mesher. Density describes terrain only: a cell is filled with terrain
+ * when its density is > 0, and then its material is always one of these.
+ * Air, water and the legacy prototype blocks are "empty terrain"
+ * (density ≤ 0); legacy blocks are still drawn as cubes until later phases
+ * replace them.
+ */
+export const MAT_TERRAIN = new Uint8Array(N);
+for (const id of [
+  MAT.GRASS, MAT.DIRT, MAT.STONE, MAT.SAND, MAT.BEDROCK, MAT.GRAVEL, MAT.SNOW,
+  MAT.COAL_ORE, MAT.IRON_ORE, MAT.SANDSTONE,
+]) {
+  MAT_TERRAIN[id] = 1;
+}
+
+/**
+ * Flat colour per terrain material (sRGB hex, from the DESIGN.md palette).
+ * Phase 2 draws terrain in these colours; Phase 3 adds stylized texturing.
+ */
+const TERRAIN_COLOURS = {
+  [MAT.GRASS]: 0x6cc24a,
+  [MAT.DIRT]: 0x9c6b43,
+  [MAT.STONE]: 0x8e9196,
+  [MAT.SAND]: 0xf2d99a,
+  [MAT.BEDROCK]: 0x4a4b50,
+  [MAT.GRAVEL]: 0x8a8580,
+  [MAT.SNOW]: 0xf4f8fc,
+  [MAT.COAL_ORE]: 0x5e6268,
+  [MAT.IRON_ORE]: 0xa08070,
+  [MAT.SANDSTONE]: 0xe0c98a,
+};
+/** sRGB colour bytes per material: [r, g, b] at id * 3. */
+export const MAT_COLOUR = new Uint8Array(N * 3);
+for (const [id, hex] of Object.entries(TERRAIN_COLOURS)) {
+  MAT_COLOUR[id * 3] = (hex >> 16) & 255;
+  MAT_COLOUR[id * 3 + 1] = (hex >> 8) & 255;
+  MAT_COLOUR[id * 3 + 2] = hex & 255;
+}
+
 /** Density of a completely filled / completely empty cell. */
 export const DENSITY_FULL = 127;
 export const DENSITY_EMPTY = -127;
 
-/** Density a cell gets when it's set to `id` outright (full, or empty for air). */
+/** Density scale: density units per metre of distance to the surface. */
+export const DENSITY_PER_METRE = 32;
+
+/** Density a cell gets when it's set to `id` outright: full for terrain, empty otherwise. */
 export function defaultDensity(id) {
-  return id === MAT.AIR ? DENSITY_EMPTY : DENSITY_FULL;
+  return MAT_TERRAIN[id] ? DENSITY_FULL : DENSITY_EMPTY;
 }
 
 /**

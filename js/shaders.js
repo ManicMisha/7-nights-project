@@ -137,6 +137,65 @@ export function createTerrainMaterial(textureArray) {
 }
 
 // ---------------------------------------------------------------------------
+// Smooth terrain (Surface Nets): flat palette colours for now; Phase 3 adds
+// stylized texturing. Smooth normals give soft sky shading, the grid light
+// gives cave darkness and torchlight, and a gentle world-space variation
+// keeps large areas from looking flat.
+// ---------------------------------------------------------------------------
+
+export function createSmoothTerrainMaterial() {
+  return new THREE.ShaderMaterial({
+    uniforms: { ...sharedUniforms },
+    vertexShader: /* glsl */ `
+      attribute vec4 aColour;
+      attribute vec4 aLight;
+      varying vec3 vColour;
+      varying float vAO;
+      varying vec2 vLight;
+      varying vec3 vNormal;
+      varying vec3 vWorldPos;
+      void main() {
+        vec4 wp = modelMatrix * vec4(position, 1.0);
+        vWorldPos = wp.xyz;
+        vColour = aColour.rgb;
+        vAO = aColour.a;
+        vLight = aLight.xy;
+        vNormal = normal;
+        gl_Position = projectionMatrix * viewMatrix * wp;
+      }
+    `,
+    fragmentShader: /* glsl */ `
+      ${COMMON}
+      varying vec3 vColour;
+      varying float vAO;
+      varying vec2 vLight;
+      varying vec3 vNormal;
+      varying vec3 vWorldPos;
+
+      float valueNoise3(vec3 p) {
+        vec3 i = floor(p);
+        vec3 f = fract(p);
+        f = f * f * (3.0 - 2.0 * f);
+        float a = mix(mix(hash13(i), hash13(i + vec3(1, 0, 0)), f.x), mix(hash13(i + vec3(0, 1, 0)), hash13(i + vec3(1, 1, 0)), f.x), f.y);
+        float b = mix(mix(hash13(i + vec3(0, 0, 1)), hash13(i + vec3(1, 0, 1)), f.x), mix(hash13(i + vec3(0, 1, 1)), hash13(i + vec3(1, 1, 1)), f.x), f.y);
+        return mix(a, b, f.z);
+      }
+
+      void main() {
+        vec3 n = normalize(vNormal);
+        // Perceptual shading: full on top, softer on walls, darkest underneath.
+        float hemi = 0.8 + 0.2 * n.y;
+        float variation = 0.93 + 0.1 * valueNoise3(vWorldPos * 0.35) + 0.04 * valueNoise3(vWorldPos * 1.7);
+        float shade = clamp(vAO * hemi * variation, 0.0, 1.2);
+        vec3 col = toLinear(vColour) * shadeLight(vLight.x, vLight.y) * pow(shade, 2.2);
+        gl_FragColor = vec4(applyFog(col, vWorldPos, vLight.x), 1.0);
+        #include <colorspace_fragment>
+      }
+    `,
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Water: screen-space refraction (with depth-based absorption and shore
 // foam) + planar reflection, blended by a Fresnel term.
 // ---------------------------------------------------------------------------

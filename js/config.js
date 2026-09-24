@@ -4,8 +4,8 @@ export const CHUNK_SIZE = 16; // blocks along X and Z per chunk (must be 16: cod
 export const CHUNK_SHIFT = 4;
 export const CHUNK_MASK = 15;
 export const WORLD_HEIGHT = 128; // blocks along Y
-export const SEA_LEVEL = 48; // highest water block; its surface sits just below SEA_LEVEL + 1
-export const WATER_SURFACE_Y = SEA_LEVEL + 0.875;
+export const SEA_LEVEL = 48; // highest water cell
+export const WATER_SURFACE_Y = SEA_LEVEL + 0.5; // water surface height (the middle of that cell)
 export const MAX_LIGHT = 15;
 
 export const DEFAULT_SETTINGS = {
