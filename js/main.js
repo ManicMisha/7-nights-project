@@ -5,6 +5,7 @@ import { DEFAULT_SETTINGS, CHUNK_SIZE } from './config.js';
 import { hashSeed } from './noise.js';
 import { MAT_NAME } from './materials.js';
 import { TextureLibrary } from './textures.js';
+import { createTerrainTexture } from './terraintextures.js';
 import {
   sharedUniforms, createTerrainMaterial, createSmoothTerrainMaterial, createWaterMaterial,
 } from './shaders.js';
@@ -74,7 +75,7 @@ class Game {
     this.textures = new TextureLibrary();
     this.materials = {
       terrain: createTerrainMaterial(this.textures.array),
-      smooth: createSmoothTerrainMaterial(),
+      smooth: createSmoothTerrainMaterial(createTerrainTexture()),
       water: createWaterMaterial(),
     };
 

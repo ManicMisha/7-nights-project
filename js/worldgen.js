@@ -310,9 +310,9 @@ export class TerrainGenerator {
         return { top: noise > 0.55 ? MAT.GRAVEL : MAT.STONE, filler: MAT.STONE, fillerDepth: 1 };
       }
       default:
-        // Plains: grass on the flats, bare earth on banks, rock on cliffs.
-        if (slope > 1.1) return { top: MAT.STONE, filler: MAT.STONE, fillerDepth: 1 };
-        if (slope > 0.75) return { top: MAT.DIRT, filler: MAT.DIRT, fillerDepth: soilDepth };
+        // Plains: grass right up to the rock of cliffs (the terrain shader
+        // adds a thin earthy lip where grass meets steep ground).
+        if (slope > 1.0) return { top: MAT.STONE, filler: MAT.STONE, fillerDepth: 1 };
         return { top: MAT.GRASS, filler: MAT.DIRT, fillerDepth: soilDepth };
     }
   }

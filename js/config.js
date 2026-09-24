@@ -35,3 +35,35 @@ export const MOBS = {
   despawnDistance: 96,
   maxSpawnLight: 5, // effective light (0–15) at or below which mobs may spawn
 };
+
+/**
+ * Art-style palette (sRGB hex), mirrored from DESIGN.md. Terrain textures,
+ * water and later models draw from these so the world stays coherent.
+ */
+export const PALETTE = {
+  skyDay: 0x4da8f0,
+  horizonDay: 0xbde6ff,
+  sunlight: 0xffe9b8,
+  grass: 0x6cc24a,
+  grassShade: 0x3f8f3a,
+  leaves: 0x4fae3b,
+  dirt: 0x9c6b43,
+  rock: 0x8e9196,
+  rockDark: 0x5e6268,
+  sand: 0xf2d99a,
+  waterShallow: 0x3fe0d0,
+  waterDeep: 0x1e7fc2,
+  foam: 0xf4ffff,
+  wood: 0xb9824a,
+  woodDark: 0x7a4e2b,
+  stoneBuilding: 0xa7a39a,
+  brick: 0xb5553f,
+  metal: 0x7f8a96,
+  skyNight: 0x0b1026,
+  fogNight: 0x1a2340,
+  moonlight: 0x7e94c9,
+  firelight: 0xffb45a,
+  resource: 0xffd84d,
+  enemy: 0xe0453a,
+  snow: 0xf4f8fc,
+};

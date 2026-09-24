@@ -74,11 +74,12 @@ All game code lives in `js/`.
 | `worldgen.js` | Terrain as a density field: domain-warped continentalness, hills, lakes, winding rivers, terraced cliffs and ridged mountains with 3D overhangs; biomes (ocean, beach, plains, mountains, river); slope-aware materials; caves and ore veins from interpolated 3D noise; trees and plants |
 | `chunk.js` | 16×128×16 grid chunk: material, density and light per cell; height map; harvestable records; pieces |
 | `lighting.js` | Sky and block light flood fill (0–15) that crosses chunk borders; incremental remove/re-flood on edits |
-| `surfacenets.js` | Smooth terrain mesh (Surface Nets) from the density grid: seamless across chunks, gradient normals, per-vertex light and ambient occlusion |
+| `surfacenets.js` | Smooth terrain mesh (Surface Nets) from the density grid: seamless across chunks, gradient normals, per-vertex light, ambient occlusion and terrain-class blend weights |
+| `terraintextures.js` | Stylized terrain textures (grass, soil, rock, sand, snow) painted in code from the palette |
 | `mesher.js` | Cube mesher for water and legacy blocks (trees, plants, placed blocks): face culling, per-vertex smooth lighting and ambient occlusion, packed 14-byte vertices |
 | `world.js` | Chunk streaming (generate → light → mesh) under a per-frame time budget; grid get/set (`getMaterial`, `getDensity`, `setCell`); per-chunk deltas of the player's changes; voxel DDA raycast |
 | `save.js` / `storage.js` / `persistence.js` | Save data and its binary format; IndexedDB access; loading, restoring, autosaving and deleting worlds |
-| `shaders.js` | Terrain, water, sky and cloud shaders; shared lighting and ray-marched "blocky" volumetric fog |
+| `shaders.js` | Stylized triplanar terrain shader (slope and height blending, ore nuggets), block, water, sky and cloud shaders; shared lighting and fog |
 | `water.js` | Refraction pass (colour and depth) and planar reflection pass with an oblique clip plane |
 | `sky.js` | Day/night cycle: sun and moon, sky colours, sunsets, stars, light colour, clouds |
 | `physics.js` | Collision shared by player and mobs: stands on the smooth surface, steps up small rises, follows slopes; legacy blocks collide as boxes |

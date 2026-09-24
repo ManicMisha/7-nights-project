@@ -12,11 +12,13 @@
 // reads one layer of samples from each neighbour. Vertices on a border are
 // computed from the same samples in both chunks, so they match exactly.
 //
-// Vertex data (per vertex, 24 bytes): position (3 × f32), normal (3 × i8,
-// from the density gradient), colour (sRGB material colour + ambient
-// occlusion, 4 × u8) and light (sky, block, 2 of 4 × u8).
+// Vertex data (per vertex, 29 bytes): position (3 × f32), normal (3 × i8,
+// from the density gradient), terrain-class weights (grass, soil, rock,
+// sand; 4 × u8), light (sky, block, snow weight, ambient occlusion; 4 × u8)
+// and ore amounts (coal, iron; 2 × u8). The shader blends the stylized
+// class textures from these weights.
 
-import { MAT_COLOUR } from './materials.js';
+import { MAT_CLASS, MAT_ORE, TERRAIN_CLASS_COUNT, ORE } from './materials.js';
 import { CHUNK_SIZE, WORLD_HEIGHT } from './config.js';
 import { cellIndex } from './chunk.js';
 
@@ -42,7 +44,7 @@ const EDGES = [
   [0, 4], [1, 5], [2, 6], [3, 7], // along z
 ];
 const CORNER_OFF = CORNERS.map(([x, y, z]) => (y * P + z) * P + x);
-const UPPER_CORNERS_FIRST = [2, 3, 6, 7, 0, 1, 4, 5];
+const classWeights = new Float32Array(TERRAIN_CLASS_COUNT);
 
 // For each axis: the axis step, and the two in-plane axes u, v with u × v = axis.
 const AXES = [
@@ -66,17 +68,19 @@ class Buffers {
   grow(n) {
     const pos = new Float32Array(n * 3);
     const nrm = new Int8Array(n * 3);
-    const col = new Uint8Array(n * 4);
+    const mat = new Uint8Array(n * 4);
     const light = new Uint8Array(n * 4);
+    const ore = new Uint8Array(n * 2);
     const index = new Uint32Array(n * 6);
     if (this.capacity) {
       pos.set(this.pos);
       nrm.set(this.nrm);
-      col.set(this.col);
+      mat.set(this.mat);
       light.set(this.light);
+      ore.set(this.ore);
       index.set(this.index);
     }
-    Object.assign(this, { pos, nrm, col, light, index, capacity: n });
+    Object.assign(this, { pos, nrm, mat, light, ore, index, capacity: n });
   }
   reset() {
     this.count = 0;
@@ -93,8 +97,9 @@ class Buffers {
     return {
       position: this.pos.slice(0, n * 3),
       normal: this.nrm.slice(0, n * 3),
-      colour: this.col.slice(0, n * 4),
+      material: this.mat.slice(0, n * 4),
       light: this.light.slice(0, n * 4),
+      ore: this.ore.slice(0, n * 2),
       index: n > 65535 ? this.index.slice(0, this.indexCount) : Uint16Array.from(this.index.subarray(0, this.indexCount)),
       vertexCount: n,
     };
@@ -250,15 +255,22 @@ function makeVertex(x, y, z, base, mask) {
   gy = -gy / len;
   gz = -gz / len;
 
-  // Material colour: prefer an upper solid corner, so tops show grass, not soil.
-  let matCorner = 0;
-  for (const c of UPPER_CORNERS_FIRST) {
-    if ((mask >> c) & 1) {
-      matCorner = c;
-      break;
-    }
+  // Terrain-class blend weights: each solid corner counts in proportion to
+  // how close it is to the vertex, so materials fade into each other.
+  classWeights.fill(0);
+  let coal = 0;
+  let iron = 0;
+  let total = 0;
+  for (let c = 0; c < 8; c++) {
+    if (!((mask >> c) & 1)) continue;
+    const [ox, oy, oz] = CORNERS[c];
+    const w = (ox ? px : 1 - px) * (oy ? py : 1 - py) * (oz ? pz : 1 - pz) + 1e-3;
+    const mat = sMat[base + CORNER_OFF[c]];
+    classWeights[MAT_CLASS[mat]] += w;
+    if (MAT_ORE[mat] === ORE.COAL) coal += w;
+    else if (MAT_ORE[mat] === ORE.IRON) iron += w;
+    total += w;
   }
-  const mat = sMat[base + CORNER_OFF[matCorner]];
 
   // Light: average over the empty corners (where light actually is).
   let sky = 0;
@@ -284,12 +296,13 @@ function makeVertex(x, y, z, base, mask) {
   out.nrm[i * 3] = Math.round(gx * 127);
   out.nrm[i * 3 + 1] = Math.round(gy * 127);
   out.nrm[i * 3 + 2] = Math.round(gz * 127);
-  out.col[i * 4] = MAT_COLOUR[mat * 3];
-  out.col[i * 4 + 1] = MAT_COLOUR[mat * 3 + 1];
-  out.col[i * 4 + 2] = MAT_COLOUR[mat * 3 + 2];
-  out.col[i * 4 + 3] = Math.round(ao * 255);
+  for (let k = 0; k < 4; k++) out.mat[i * 4 + k] = Math.round((classWeights[k] / total) * 255);
   out.light[i * 4] = Math.round((sky / empty) * 17);
   out.light[i * 4 + 1] = Math.round((blk / empty) * 17);
+  out.light[i * 4 + 2] = Math.round((classWeights[4] / total) * 255); // snow
+  out.light[i * 4 + 3] = Math.round(ao * 255);
+  out.ore[i * 2] = Math.round((coal / total) * 255);
+  out.ore[i * 2 + 1] = Math.round((iron / total) * 255);
   return i;
 }
 

@@ -277,8 +277,9 @@ export class World {
         chunk.smoothMesh = this.createMesh(terrain, this.materials.smooth, sphere, ox, oz, {
           position: [terrain.position, 3, false],
           normal: [terrain.normal, 3, true],
-          aColour: [terrain.colour, 4, true],
+          aMaterial: [terrain.material, 4, true],
           aLight: [terrain.light, 4, true],
+          aOre: [terrain.ore, 2, true],
         });
         triangles += terrain.index.length / 3;
       }
