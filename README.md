@@ -35,7 +35,8 @@ Three.js is included in `vendor/`, so it makes no external requests.
   (0 = midnight, 0.5 = noon), `&seed=…` for another world.
 - **Feature flags:** unfinished systems sit behind flags registered in
   `js/flags.js`. Toggle them per session with `?flags=name` or
-  `?flags=-name`. The debug overlay (F3) lists the active ones.
+  `?flags=-name`. The debug overlay (F3) lists the active ones. For example,
+  `?flags=-smoothTerrain` shows the same world as cubes, for comparison.
 - **Docs:** [DESIGN.md](DESIGN.md) holds architecture decisions and the art
   style; [ASSETS_NEEDED.md](ASSETS_NEEDED.md) tracks art still to source.
 
@@ -70,16 +71,17 @@ All game code lives in `js/`.
 | `pieces.js` | Building-piece types, material tiers, cell slots and map keys |
 | `harvestables.js` | Harvestable object types (trees, plants, rocks, ore nodes) and records |
 | `textures.js` | Procedural 32×32 pixel-art tiles → `DataArrayTexture` (mip-mapped, no atlas bleeding); inventory icons; crack overlays |
-| `worldgen.js` | Continentalness/hills/lakes/ridged-mountain height field; biomes (ocean, beach, plains, mountains); spaghetti + cavern caves from interpolated 3D noise; ores; trees that cross chunk borders; flowers and grass |
+| `worldgen.js` | Terrain as a density field: domain-warped continentalness, hills, lakes, winding rivers, terraced cliffs and ridged mountains with 3D overhangs; biomes (ocean, beach, plains, mountains, river); slope-aware materials; caves and ore veins from interpolated 3D noise; trees and plants |
 | `chunk.js` | 16×128×16 grid chunk: material, density and light per cell; height map; harvestable records; pieces |
 | `lighting.js` | Sky and block light flood fill (0–15) that crosses chunk borders; incremental remove/re-flood on edits |
-| `mesher.js` | Face culling, per-vertex smooth lighting and ambient occlusion with quad flipping; packed 14-byte vertices; one `BufferGeometry` per chunk for solid, cutout and cross blocks, plus one for water |
+| `surfacenets.js` | Smooth terrain mesh (Surface Nets) from the density grid: seamless across chunks, gradient normals, per-vertex light and ambient occlusion |
+| `mesher.js` | Cube mesher for water and legacy blocks (trees, plants, placed blocks): face culling, per-vertex smooth lighting and ambient occlusion, packed 14-byte vertices |
 | `world.js` | Chunk streaming (generate → light → mesh) under a per-frame time budget; grid get/set (`getMaterial`, `getDensity`, `setCell`); per-chunk deltas of the player's changes; voxel DDA raycast |
 | `save.js` / `storage.js` / `persistence.js` | Save data and its binary format; IndexedDB access; loading, restoring, autosaving and deleting worlds |
 | `shaders.js` | Terrain, water, sky and cloud shaders; shared lighting and ray-marched "blocky" volumetric fog |
 | `water.js` | Refraction pass (colour and depth) and planar reflection pass with an oblique clip plane |
 | `sky.js` | Day/night cycle: sun and moon, sky colours, sunsets, stars, light colour, clouds |
-| `physics.js` | Axis-separated AABB vs. voxel collision (shared by player and mobs) |
+| `physics.js` | Collision shared by player and mobs: stands on the smooth surface, steps up small rises, follows slopes; legacy blocks collide as boxes |
 | `player.js` | First-person controller: walking, sprinting, jumping, swimming, flight, fall damage, health |
 | `interaction.js` | Block targeting, timed mining with cracks and particles, placing, melee |
 | `mobs.js` | Zombies: spawn in darkness (surface at night, caves any time), chase and attack, knockback, burn in daylight |

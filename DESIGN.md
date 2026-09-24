@@ -16,8 +16,8 @@ stylized terrain and objects (see *Art style*).
 |---|---|---|
 | 0 | Foundation: Three.js upgrade, colour management, tests, benchmark, flags, these docs | **Done** |
 | 1 | Data model: material + density grid, building pieces, harvestables, IndexedDB saves | **Done** |
-| 2 | Smooth terrain (Surface Nets) and new world generation | Next |
-| 3 | Stylized terrain look | Planned |
+| 2 | Smooth terrain (Surface Nets) and new world generation | **Done** |
+| 3 | Stylized terrain look | Next |
 | 4 | Digging and terrain placement, tool tiers | Planned |
 | 5 | Harvesting: trees, rocks, ore, plants | Planned |
 | 6 | Building pieces | Planned |
@@ -48,15 +48,17 @@ minified ES module and resolved through an import map in `index.html`, so
 | `pieces.js` | Building-piece types, tiers, cell slots and keys (gameplay in Phase 6) |
 | `harvestables.js` | Trees, plants, rocks and ore nodes: types, regrow times, records |
 | `chunk.js` | 16×128×16 grid chunk: material, density and light per cell; harvestables; pieces |
-| `worldgen.js` | Deterministic terrain, biomes, caves, ores, trees and plants (with harvestable records) |
+| `worldgen.js` | Deterministic terrain as a density field: domain warping, rivers, lakes, terraced cliffs, mountains with overhangs, caves, ore veins, trees and plants (with harvestable records) |
 | `save.js` | ChunkDelta (the player's changes to a chunk) and its binary format; world metadata |
 | `storage.js` | IndexedDB reads and writes |
 | `persistence.js` | Load on start, restore the player, autosave, delete |
 | `lighting.js` | Sky and block light flood fill with incremental updates |
-| `mesher.js` | Chunk meshing (cube faces today; Surface Nets from Phase 2) |
+| `surfacenets.js` | Smooth terrain mesh (Surface Nets) from the density grid: seamless across chunks, per-vertex light and AO |
+| `mesher.js` | Cube meshing for water and the legacy blocks (and all terrain when `smoothTerrain` is off) |
 | `world.js` | Chunk streaming (generate → light → mesh) under a frame budget, grid API (`getMaterial`, `getDensity`, `setCell`), deltas, raycast |
 | `shaders.js`, `sky.js`, `water.js` | Custom materials, day/night cycle, water passes |
-| `physics.js`, `player.js`, `interaction.js`, `mobs.js` | Movement, collision, mining/placing, enemies |
+| `physics.js` | Smooth-ground character collision (step-up, slope following) plus box collision for legacy blocks |
+| `player.js`, `interaction.js`, `mobs.js` | Player controller, mining/placing, enemies |
 | `inventory.js`, `ui.js`, `sound.js`, `input.js` | Items, HUD and menus, audio, controls |
 | `main.js` | Bootstraps everything and runs the loop |
 
@@ -74,13 +76,15 @@ The world is three kinds of data. Gameplay reads them; rendering is
 derived from them.
 
 1. **Terrain grid.** 1 m cells in 16×128×16 chunks. Each cell has a
-   material id (`Uint8`) and a signed density (`Int8`, −127…127). A cell is
-   filled when density > 0 and empty when ≤ 0, and an empty cell is always
-   stored as `AIR`. For now cells are either full (127) or empty (−127),
-   which is what the cube mesher expects. Phase 2's generator writes smooth
-   densities for Surface Nets, and Phase 4's dig tool lowers them
-   gradually. Light (sky and block, 4 bits each) is stored per cell too.
-   About 96 KiB per chunk.
+   material id (`Uint8`) and a signed terrain density (`Int8`, −127…127,
+   `DENSITY_PER_METRE` = 32 units per metre), sampled at the cell centre.
+   Density > 0 means the cell is filled with terrain, and its material is
+   then always a terrain material (`MAT_TERRAIN`). Density ≤ 0 means empty
+   terrain: air, water or a legacy block. The generator writes roughly the
+   signed distance to the surface, so the Surface Nets mesher can place the
+   surface between cells; player edits currently set cells full or empty
+   (Phase 4's dig tool lowers density gradually). Light (sky and block, 4 bits
+   each) is stored per cell too. About 96 KiB per chunk.
 2. **Building pieces.** A sparse map per chunk (`chunk.pieces`), keyed by
    cell index × 8 + slot. Each cell has slots for a floor, four edges (walls,
    doors, fences) and a centre object, so a floor, four walls and a chest can
@@ -154,6 +158,29 @@ placed pieces and harvest state, plus world metadata (player, inventory,
 time). A world is identified by its seed; without `?seed` the last world
 played is resumed. See *Saves* for the format and compatibility rules.
 
+**D8: smooth terrain with Surface Nets (Phase 2).** Terrain is drawn
+where the density field crosses zero, with density samples at cell centres.
+Surface Nets was chosen over Marching Cubes (fewer triangles, shared
+vertices, smoother at 1 m cells, simple to make seamless) and over Dual
+Contouring (needs normals per edge and a solver; sharp features aren't
+wanted in a soft stylized look). Each chunk owns the sample edges that
+start inside it and reads one layer of samples from each neighbour, so
+borders match exactly. Details that make it look right:
+- The generator stores approximate *distance* to the surface (height
+  difference ÷ √(1 + slope²)), so steep slopes don't saturate the ±127
+  range, which turns them into staircases.
+- Normals come from the density gradient; ambient occlusion is the
+  interpolated amount of terrain one metre out from the surface; light comes
+  from the existing grid lighting (cave darkness and torches still work).
+- Terrain uses flat palette colours per material until Phase 3.
+
+Collision follows the same surface (`physics.js`): the ground height is
+solved exactly between cell centres, entities step up rises of up to 0.6 m,
+follow the ground downhill, and are stopped by anything higher. Legacy blocks
+still collide as boxes. The `smoothTerrain` flag (on by default;
+`?flags=-smoothTerrain` to compare) switches meshing and physics back to
+cubes. Remove it, and the cube-terrain paths, once nothing needs them.
+
 ## Saves
 
 - **Where:** IndexedDB database `7nights`, stores `worlds` (metadata, keyed
@@ -174,8 +201,8 @@ played is resumed. See *Saves* for the format and compatibility rules.
     `GENERATOR_VERSION` in `worldgen.js`. Saves from another generator
     version are not loaded (their edits would land on different terrain).
     The player is told, starts fresh, and the old save is replaced.
-    **Phase 2 changes generation, so worlds saved before Phase 2 won't carry
-    over.**
+    Phase 2 raised it to 2, so worlds saved during Phase 1 aren't loaded;
+    the player sees an explanation and a fresh world.
   - Item, piece and harvestable type ids are saved: never renumber them.
 - **What isn't saved:** mobs, dropped particles and the day count (the
   7-night counter arrives in Phase 6b).
@@ -189,14 +216,15 @@ Measurements on seed `demo` at render distance 6. CPU timings are
 meaningful; the cloud sessions that take them only have software rendering,
 so FPS figures come from `?bench` on real hardware.
 
-| Metric | Phase 0 | Phase 1 |
-|---|---|---|
-| Generate one chunk (median) | 0.7 ms | 0.96 ms including density fill and delta (generation alone 0.75 ms) |
-| Light / mesh one chunk (median) | 1.8 / 1.3 ms | 1.6–2.1 / 1.2–1.3 ms (unchanged) |
-| Grid memory per chunk | 64 KiB | 96 KiB (density added) |
-| World triangles | ~400–480k | unchanged |
-| Draw calls per frame | ~290 across 3 passes | unchanged |
-| Save size | — | 28 bytes per changed chunk + 4 bytes per edited cell |
+| Metric | Phase 0 | Phase 1 | Phase 2 |
+|---|---|---|---|
+| Generate one chunk (median) | 0.7 ms | 0.96 ms incl. density fill (0.75 ms alone) | 2.1 ms (warping, rivers, cliffs, overhangs, ore veins) |
+| Light one chunk (median) | 1.8 ms | 1.6–2.1 ms | unchanged |
+| Mesh one chunk (median) | 1.3 ms (cubes) | 1.2–1.3 ms | 1.3 ms smooth terrain (+ a small cube pass for water and legacy blocks) |
+| Triangles per chunk (terrain) | — | — | ~3.1k smooth vs ~3.2k as cubes |
+| Grid memory per chunk | 64 KiB | 96 KiB | unchanged |
+| Draw calls per frame | ~290 across 3 passes | unchanged | ~350–400 (a third mesh per chunk while legacy blocks remain) |
+| Save size | — | 28 B per changed chunk + 4 B per edited cell | unchanged |
 
 Water costs two extra render passes per frame (reflection and refraction),
 removed in Phase 8.
