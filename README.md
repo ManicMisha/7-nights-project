@@ -14,8 +14,11 @@ Three.js is included in `vendor/`, so it makes no external requests.
   `file://`.
 - **Play online:** https://manicmisha.github.io/7-nights-project/ (deployed to GitHub
   Pages by `.github/workflows/pages.yml` on every push to `main`).
-- **Seeds:** `index.html?seed=anything`. The same seed always produces the
-  same world.
+- **Worlds and saves:** `?seed=anything` opens the world for that seed.
+  The same seed always generates the same terrain. Your changes, position,
+  inventory and time of day save automatically in the browser (IndexedDB)
+  and come back on your next visit. Without `?seed` the last world you
+  played is resumed. The pause menu can delete a world's save.
 - **Requires** WebGL 2 and a browser with import-map support (any current
   Chrome, Edge, Firefox or Safari).
 
@@ -62,13 +65,17 @@ All game code lives in `js/`.
 | `flags.js` | Feature flags for unfinished systems |
 | `bench.js` | `?bench` benchmark mode and frame-time statistics |
 | `noise.js` | Seeded PRNG, 2D/3D simplex noise, fBm, ridged noise, integer hashes |
-| `blocks.js` | Block registry flattened into typed lookup tables (solid, opaque, emission, attenuation, hardness, drops, face textures) |
+| `materials.js` | Material registry (what fills a grid cell) flattened into typed lookup tables (solid, opaque, emission, attenuation, hardness, drops, face textures); density constants |
+| `items.js` | Item registry with stable ids: names, the material each item places, drops, the creative palette |
+| `pieces.js` | Building-piece types, material tiers, cell slots and map keys |
+| `harvestables.js` | Harvestable object types (trees, plants, rocks, ore nodes) and records |
 | `textures.js` | Procedural 32×32 pixel-art tiles → `DataArrayTexture` (mip-mapped, no atlas bleeding); inventory icons; crack overlays |
 | `worldgen.js` | Continentalness/hills/lakes/ridged-mountain height field; biomes (ocean, beach, plains, mountains); spaghetti + cavern caves from interpolated 3D noise; ores; trees that cross chunk borders; flowers and grass |
-| `chunk.js` | 16×128×16 block and light storage, height map, vertical bounds |
+| `chunk.js` | 16×128×16 grid chunk: material, density and light per cell; height map; harvestable records; pieces |
 | `lighting.js` | Sky and block light flood fill (0–15) that crosses chunk borders; incremental remove/re-flood on edits |
 | `mesher.js` | Face culling, per-vertex smooth lighting and ambient occlusion with quad flipping; packed 14-byte vertices; one `BufferGeometry` per chunk for solid, cutout and cross blocks, plus one for water |
-| `world.js` | Chunk streaming (generate → light → mesh) under a per-frame time budget; block get/set; edit persistence across unloads; voxel DDA raycast |
+| `world.js` | Chunk streaming (generate → light → mesh) under a per-frame time budget; grid get/set (`getMaterial`, `getDensity`, `setCell`); per-chunk deltas of the player's changes; voxel DDA raycast |
+| `save.js` / `storage.js` / `persistence.js` | Save data and its binary format; IndexedDB access; loading, restoring, autosaving and deleting worlds |
 | `shaders.js` | Terrain, water, sky and cloud shaders; shared lighting and ray-marched "blocky" volumetric fog |
 | `water.js` | Refraction pass (colour and depth) and planar reflection pass with an oblique clip plane |
 | `sky.js` | Day/night cycle: sun and moon, sky colours, sunsets, stars, light colour, clouds |
