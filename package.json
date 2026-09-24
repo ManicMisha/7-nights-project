@@ -4,9 +4,9 @@
   "description": "7 Nights — a survival sandbox built with Three.js. Static site; no build step.",
   "type": "module",
   "scripts": {
-    "test": "node --test"
+    "test": "node --import ./tests/setup.js --test"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=20.6"
   }
 }

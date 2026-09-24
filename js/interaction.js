@@ -3,8 +3,9 @@
 
 import * as THREE from 'three';
 import {
-  BLOCK, BLOCK_HARDNESS, BLOCK_DROP, BLOCK_RENDER, BLOCK_SOLID, BLOCK_TILES, RENDER, isReplaceable,
-} from './blocks.js';
+  MAT, MAT_HARDNESS, MAT_RENDER, MAT_SOLID, MAT_TILES, RENDER, isReplaceable,
+} from './materials.js';
+import { ITEM_PLACES, dropItem } from './items.js';
 import { PLAYER } from './config.js';
 import { intersectsBlock } from './physics.js';
 
@@ -67,7 +68,7 @@ export class BlockInteraction {
 
     const eye = this.player.eye;
     const dir = this.player.lookDirection();
-    this.target = this.world.raycast(eye, dir, PLAYER.reach, (id) => id !== BLOCK.AIR && id !== BLOCK.WATER);
+    this.target = this.world.raycast(eye, dir, PLAYER.reach, (id) => id !== MAT.AIR && id !== MAT.WATER);
     const mobHit = this.mobs.raycast(eye, dir, 3.6);
     const mobFirst = mobHit && (!this.target || mobHit.distance < this.target.distance);
 
@@ -87,7 +88,7 @@ export class BlockInteraction {
         this.breakKey = key;
         this.breakProgress = 0;
       }
-      const hardness = BLOCK_HARDNESS[t.id];
+      const hardness = MAT_HARDNESS[t.id];
       if (Number.isFinite(hardness)) {
         this.breakProgress += hardness > 0 ? dt / hardness : 1;
         if (Math.random() < dt * 12) this.spawnParticles(t, 1);
@@ -119,7 +120,7 @@ export class BlockInteraction {
     const eye = this.player.eye;
     const dir = this.player.lookDirection();
     const mobHit = this.mobs.raycast(eye, dir, 3.6);
-    const block = this.world.raycast(eye, dir, PLAYER.reach, (id) => id !== BLOCK.AIR && id !== BLOCK.WATER);
+    const block = this.world.raycast(eye, dir, PLAYER.reach, (id) => id !== MAT.AIR && id !== MAT.WATER);
     if (mobHit && (!block || mobHit.distance < block.distance)) {
       const knock = new THREE.Vector3(dir.x, 0, dir.z).normalize();
       mobHit.mob.hurt(5, knock);
@@ -129,15 +130,15 @@ export class BlockInteraction {
   }
 
   breakBlock(t) {
-    this.world.setBlock(t.x, t.y, t.z, BLOCK.AIR);
+    this.world.setMaterial(t.x, t.y, t.z, MAT.AIR);
     this.spawnParticles(t, 22);
-    const drop = BLOCK_DROP[t.id];
+    const drop = dropItem(t.id);
     if (drop) this.inventory.add(drop, 1);
     // Plants and torches resting on the broken block pop off too.
-    const above = this.world.getBlock(t.x, t.y + 1, t.z);
-    if (above !== null && BLOCK_RENDER[above] === RENDER.CROSS) {
-      this.world.setBlock(t.x, t.y + 1, t.z, BLOCK.AIR);
-      if (BLOCK_DROP[above]) this.inventory.add(BLOCK_DROP[above], 1);
+    const above = this.world.getMaterial(t.x, t.y + 1, t.z);
+    if (above !== null && MAT_RENDER[above] === RENDER.CROSS) {
+      this.world.setMaterial(t.x, t.y + 1, t.z, MAT.AIR);
+      if (dropItem(above)) this.inventory.add(dropItem(above), 1);
     }
     this.breakProgress = 0;
     this.breakKey = '';
@@ -153,30 +154,31 @@ export class BlockInteraction {
     let y = t.y;
     let z = t.z;
     // Clicking a replaceable plant replaces it; otherwise build on the face.
-    if (t.id !== BLOCK.TALL_GRASS) {
+    if (t.id !== MAT.TALL_GRASS) {
       x += t.normal[0];
       y += t.normal[1];
       z += t.normal[2];
     }
-    const existing = this.world.getBlock(x, y, z);
+    const existing = this.world.getMaterial(x, y, z);
     if (existing === null || !isReplaceable(existing)) return;
-    const id = stack.id;
-    if (BLOCK_RENDER[id] === RENDER.CROSS) {
+    const id = ITEM_PLACES[stack.id];
+    if (!id) return;
+    if (MAT_RENDER[id] === RENDER.CROSS) {
       // Torches and flowers need solid ground beneath them.
-      const below = this.world.getBlock(x, y - 1, z);
-      if (!below || !BLOCK_SOLID[below]) return;
+      const below = this.world.getMaterial(x, y - 1, z);
+      if (!below || !MAT_SOLID[below]) return;
     }
-    if (BLOCK_SOLID[id]) {
+    if (MAT_SOLID[id]) {
       if (intersectsBlock(this.player, x, y, z) || this.mobs.occupies(x, y, z)) return;
     }
-    if (this.world.setBlock(x, y, z, id)) {
+    if (this.world.setMaterial(x, y, z, id)) {
       this.inventory.consumeSelected();
       if (this.sound) this.sound.place();
     }
   }
 
   spawnParticles(t, count) {
-    const color = this.textures.averageColors[BLOCK_TILES[t.id * 3 + 2]];
+    const color = this.textures.averageColors[MAT_TILES[t.id * 3 + 2]];
     for (let i = 0; i < count && this.particles.length < MAX_PARTICLES; i++) {
       this.particles.push({
         x: t.x + 0.2 + Math.random() * 0.6,

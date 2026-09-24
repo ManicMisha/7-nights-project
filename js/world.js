@@ -1,12 +1,14 @@
 // Chunk manager: streams chunks in and out around the player through a
 // generate → light → mesh pipeline under a per-frame time budget, owns the
-// block get/set API, and remembers player edits so unloaded chunks come
-// back exactly as they were left.
+// grid get/set API, and keeps the player's changes per chunk (ChunkDelta)
+// so unloaded chunks come back exactly as they were left, and so they can
+// be saved.
 
 import * as THREE from 'three';
-import { Chunk, chunkKey, blockIndex } from './chunk.js';
+import { Chunk, chunkKey, cellIndex } from './chunk.js';
 import { CHUNK_SIZE, WORLD_HEIGHT } from './config.js';
-import { BLOCK, BLOCK_SOLID } from './blocks.js';
+import { MAT, MAT_SOLID, DENSITY_EMPTY, defaultDensity } from './materials.js';
+import { ChunkDelta, unpackMaterial, unpackDensity, encodeChunkDelta } from './save.js';
 import { LightEngine } from './lighting.js';
 import { buildChunkGeometry } from './mesher.js';
 
@@ -16,7 +18,8 @@ export class World {
     this.generator = generator;
     this.materials = materials; // { terrain, water }
     this.chunks = new Map();
-    this.edits = new Map(); // chunkKey → Map(blockIndex → id)
+    this.deltas = new Map(); // chunkKey → ChunkDelta (the player's changes)
+    this.unsaved = new Set(); // chunkKeys whose delta changed since the last save
     this.light = new LightEngine(this);
     this.renderDistance = 6;
     this.frameBudgetMs = 7;
@@ -52,19 +55,61 @@ export class World {
     return this.chunks.get(chunkKey(cx, cz));
   }
 
-  /** Block id at a world position; null if that chunk isn't generated yet. */
-  getBlock(x, y, z) {
-    if (y < 0) return BLOCK.BEDROCK;
-    if (y >= WORLD_HEIGHT) return BLOCK.AIR;
+  /** The player's changes to a chunk, created on first use. */
+  deltaFor(cx, cz) {
+    const key = chunkKey(cx, cz);
+    let delta = this.deltas.get(key);
+    if (!delta) this.deltas.set(key, (delta = new ChunkDelta(cx, cz)));
+    return delta;
+  }
+
+  /** Installs deltas read from a save. Call before those chunks generate. */
+  loadDeltas(deltas) {
+    for (const delta of deltas) this.deltas.set(chunkKey(delta.cx, delta.cz), delta);
+  }
+
+  /** Marks a chunk's delta as needing to be saved. */
+  markUnsaved(chunk) {
+    this.unsaved.add(chunk.key);
+  }
+
+  /**
+   * Encodes every chunk changed since the last call, for storage. Chunks whose
+   * changes were all undone come back with data null (delete from the save).
+   */
+  takeUnsavedChunks() {
+    const out = [];
+    for (const key of this.unsaved) {
+      const delta = this.deltas.get(key);
+      if (!delta) continue;
+      out.push({ cx: delta.cx, cz: delta.cz, data: delta.isEmpty ? null : encodeChunkDelta(delta) });
+    }
+    this.unsaved.clear();
+    return out;
+  }
+
+  /** Material id at a world position; null if that chunk isn't generated yet. */
+  getMaterial(x, y, z) {
+    if (y < 0) return MAT.BEDROCK;
+    if (y >= WORLD_HEIGHT) return MAT.AIR;
     const chunk = this.getChunk(x >> 4, z >> 4);
     if (!chunk || !chunk.generated) return null;
-    return chunk.blocks[blockIndex(x & 15, y, z & 15)];
+    return chunk.materials[cellIndex(x & 15, y, z & 15)];
+  }
+
+  /** Density at a world position (−127…127); null if not generated yet. */
+  getDensity(x, y, z) {
+    if (y < 0) return 127;
+    if (y >= WORLD_HEIGHT) return DENSITY_EMPTY;
+    const chunk = this.getChunk(x >> 4, z >> 4);
+    if (!chunk || !chunk.generated) return null;
+    return chunk.density[cellIndex(x & 15, y, z & 15)];
   }
 
   /** True if the cell blocks movement. Unloaded terrain counts as solid. */
   isSolid(x, y, z) {
-    const id = this.getBlock(x, y, z);
-    return id === null ? true : BLOCK_SOLID[id] === 1;
+    const id = this.getMaterial(x, y, z);
+    return id === null ? true : MAT_SOLID[id] === 1;
   }
 
   /** Packed light byte (sky << 4 | block) at a world position. */
@@ -73,7 +118,7 @@ export class World {
     if (y < 0) return 0;
     const chunk = this.getChunk(x >> 4, z >> 4);
     if (!chunk || !chunk.lit) return 0xf0;
-    return chunk.light[blockIndex(x & 15, y, z & 15)];
+    return chunk.light[cellIndex(x & 15, y, z & 15)];
   }
 
   /** Highest non-air block in a column (or -1). */
@@ -83,20 +128,37 @@ export class World {
     return chunk.heightMap[(z & 15) * CHUNK_SIZE + (x & 15)] - 1;
   }
 
-  /** Changes a block, updates lighting and synchronously re-meshes affected chunks. */
-  setBlock(x, y, z, id) {
+  /** Fills a cell completely with `id` (or empties it, for AIR). */
+  setMaterial(x, y, z, id) {
+    return this.setCell(x, y, z, id, defaultDensity(id));
+  }
+
+  /**
+   * Sets a cell's material and density, records the change for saving,
+   * updates lighting and synchronously re-meshes affected chunks. A cell
+   * whose density is ≤ 0 is empty, so it's stored as AIR.
+   */
+  setCell(x, y, z, material, density) {
     if (y < 0 || y >= WORLD_HEIGHT) return false;
     const chunk = this.getChunk(x >> 4, z >> 4);
     if (!chunk || !chunk.generated) return false;
+    let id = material;
+    let d = Math.max(-127, Math.min(127, Math.round(density)));
+    if (id === MAT.AIR || d <= 0) {
+      id = MAT.AIR;
+      d = Math.min(d, 0);
+    }
     const lx = x & 15;
     const lz = z & 15;
-    const i = blockIndex(lx, y, lz);
-    if (chunk.blocks[i] === id) return false;
-    chunk.blocks[i] = id;
-
-    let edits = this.edits.get(chunk.key);
-    if (!edits) this.edits.set(chunk.key, (edits = new Map()));
-    edits.set(i, id);
+    const i = cellIndex(lx, y, lz);
+    const materialChanged = chunk.materials[i] !== id;
+    if (!materialChanged && chunk.density[i] === d) return false;
+    chunk.materials[i] = id;
+    chunk.density[i] = d;
+    this.deltaFor(chunk.cx, chunk.cz).setCell(i, id, d);
+    this.markUnsaved(chunk);
+    // Rendering, lighting and collision only read the material for now.
+    if (!materialChanged) return true;
 
     this.updateColumnBounds(chunk, lx, y, lz, id);
 
@@ -118,13 +180,13 @@ export class World {
 
   updateColumnBounds(chunk, lx, y, lz, id) {
     const col = lz * CHUNK_SIZE + lx;
-    if (id !== BLOCK.AIR) {
+    if (id !== MAT.AIR) {
       if (y < chunk.minY) chunk.minY = y;
       if (y > chunk.maxY) chunk.maxY = y;
       if (y + 1 > chunk.heightMap[col]) chunk.heightMap[col] = y + 1;
     } else if (y + 1 === chunk.heightMap[col]) {
       let top = y;
-      while (top > 0 && chunk.blocks[blockIndex(lx, top - 1, lz)] === BLOCK.AIR) top--;
+      while (top > 0 && chunk.materials[cellIndex(lx, top - 1, lz)] === MAT.AIR) top--;
       chunk.heightMap[col] = top;
     }
   }
@@ -147,8 +209,16 @@ export class World {
   generateChunk(cx, cz) {
     const chunk = new Chunk(cx, cz);
     this.generator.generate(chunk);
-    const edits = this.edits.get(chunk.key);
-    if (edits) for (const [i, id] of edits) chunk.blocks[i] = id;
+    chunk.fillDensityFromMaterials();
+    // Re-apply the player's changes. The chunk shares the delta's piece and
+    // harvest maps, so changes to either are recorded automatically.
+    const delta = this.deltaFor(cx, cz);
+    for (const [i, packed] of delta.cells) {
+      chunk.materials[i] = unpackMaterial(packed);
+      chunk.density[i] = unpackDensity(packed);
+    }
+    chunk.pieces = delta.pieces;
+    chunk.harvestState = delta.harvest;
     chunk.updateBounds();
     chunk.generated = true;
     this.chunks.set(chunk.key, chunk);
@@ -246,6 +316,9 @@ export class World {
       if (dx * dx + dz * dz > limit * limit) {
         chunk.disposeMeshes(this.scene);
         this.chunks.delete(chunk.key);
+        // Forget untouched chunks entirely so exploring doesn't grow memory.
+        const delta = this.deltas.get(chunk.key);
+        if (delta && delta.isEmpty && !this.unsaved.has(chunk.key)) this.deltas.delete(chunk.key);
       }
     }
   }
@@ -292,7 +365,7 @@ export class World {
     const normal = [0, 0, 0];
     let t = 0;
     while (t <= maxDist) {
-      const id = this.getBlock(x, y, z);
+      const id = this.getMaterial(x, y, z);
       if (id !== null && predicate(id)) {
         return { x, y, z, id, normal: normal.slice(), distance: t };
       }

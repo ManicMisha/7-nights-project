@@ -5,7 +5,7 @@ import { moveEntity, intersectsBlock } from '../js/physics.js';
 // Minimal world: solid below y = 5, plus a wall at x = 10.
 const world = {
   isSolid: (x, y) => y < 5 || x === 10,
-  getBlock: () => 0,
+  getMaterial: () => 0,
 };
 
 function entity(x, y, z) {

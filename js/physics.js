@@ -1,6 +1,6 @@
 // Axis-separated AABB vs. voxel collision shared by the player and mobs.
 
-import { BLOCK } from './blocks.js';
+import { MAT } from './materials.js';
 
 const EPS = 1e-4;
 
@@ -65,7 +65,7 @@ export function isInWater(world, e, heightFraction = 0.4) {
   const x = Math.floor(e.position.x);
   const z = Math.floor(e.position.z);
   const y = Math.floor(e.position.y + e.height * heightFraction);
-  return world.getBlock(x, y, z) === BLOCK.WATER;
+  return world.getMaterial(x, y, z) === MAT.WATER;
 }
 
 /** True if the entity's box intersects the given block cell. */

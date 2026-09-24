@@ -6,10 +6,18 @@
 // ranges. Biomes are derived from those same fields so they always agree
 // with the terrain shape. Caves are carved from interpolated 3D noise.
 
-import { BLOCK } from './blocks.js';
-import { blockIndex } from './chunk.js';
+import { MAT } from './materials.js';
+import { cellIndex } from './chunk.js';
 import { CHUNK_SIZE, SEA_LEVEL, WORLD_HEIGHT } from './config.js';
 import { SimplexNoise, hash2, hash3, smoothstep, lerp } from './noise.js';
+import { HARVESTABLE, makeHarvestable } from './harvestables.js';
+
+/**
+ * Bump whenever a change to generation alters existing terrain. Saves record
+ * the version that made their world, and a save from another version can't
+ * be loaded (its edits would land on different terrain).
+ */
+export const GENERATOR_VERSION = 1;
 
 export const BIOME = { OCEAN: 0, BEACH: 1, PLAINS: 2, MOUNTAINS: 3 };
 export const BIOME_NAME = ['Ocean', 'Beach', 'Plains', 'Mountains'];
@@ -30,6 +38,13 @@ function spline(points, x) {
   }
   return points[points.length - 1][1];
 }
+
+// Legacy materials that still draw each plant type (until Phase 5).
+const PLANT_MATERIAL = {
+  [HARVESTABLE.TALL_GRASS]: MAT.TALL_GRASS,
+  [HARVESTABLE.RED_FLOWER]: MAT.RED_FLOWER,
+  [HARVESTABLE.YELLOW_FLOWER]: MAT.YELLOW_FLOWER,
+};
 
 const PAD = 2; // columns sampled beyond the chunk edge so trees can cross borders
 const COLS = CHUNK_SIZE + PAD * 2;
@@ -84,7 +99,7 @@ export class TerrainGenerator {
     return { height, biome, mountain: m };
   }
 
-  /** Fills `chunk.blocks` for its position. */
+  /** Fills `chunk.materials` and `chunk.harvestables` for its position. */
   generate(chunk) {
     const baseX = chunk.cx * CHUNK_SIZE;
     const baseZ = chunk.cz * CHUNK_SIZE;
@@ -105,7 +120,7 @@ export class TerrainGenerator {
     this.sampleCaveField(baseX, baseZ, Math.min(WORLD_HEIGHT - 1, maxHeight + 2));
 
     // 3. Terrain column fill.
-    const blocks = chunk.blocks;
+    const mats = chunk.materials;
     for (let z = 0; z < CHUNK_SIZE; z++) {
       for (let x = 0; x < CHUNK_SIZE; x++) {
         const wx = baseX + x;
@@ -121,24 +136,24 @@ export class TerrainGenerator {
         let fillerDepth = soilDepth;
         switch (biome) {
           case BIOME.OCEAN:
-            top = height > SEA_LEVEL - 7 ? BLOCK.SAND : surfaceNoise > 0.25 ? BLOCK.GRAVEL : BLOCK.DIRT;
-            filler = top === BLOCK.SAND ? BLOCK.SAND : BLOCK.DIRT;
+            top = height > SEA_LEVEL - 7 ? MAT.SAND : surfaceNoise > 0.25 ? MAT.GRAVEL : MAT.DIRT;
+            filler = top === MAT.SAND ? MAT.SAND : MAT.DIRT;
             break;
           case BIOME.BEACH:
-            top = BLOCK.SAND;
-            filler = BLOCK.SAND;
+            top = MAT.SAND;
+            filler = MAT.SAND;
             fillerDepth = soilDepth + 1;
             break;
           case BIOME.MOUNTAINS:
-            if (height > 94 + surfaceNoise * 6) top = BLOCK.SNOW;
-            else if (height < SEA_LEVEL + 26 + surfaceNoise * 6) top = BLOCK.GRASS;
-            else top = surfaceNoise > 0.55 ? BLOCK.GRAVEL : BLOCK.STONE;
-            filler = top === BLOCK.GRASS ? BLOCK.DIRT : BLOCK.STONE;
-            fillerDepth = top === BLOCK.GRASS ? 2 : 1;
+            if (height > 94 + surfaceNoise * 6) top = MAT.SNOW;
+            else if (height < SEA_LEVEL + 26 + surfaceNoise * 6) top = MAT.GRASS;
+            else top = surfaceNoise > 0.55 ? MAT.GRAVEL : MAT.STONE;
+            filler = top === MAT.GRASS ? MAT.DIRT : MAT.STONE;
+            fillerDepth = top === MAT.GRASS ? 2 : 1;
             break;
           default:
-            top = BLOCK.GRASS;
-            filler = BLOCK.DIRT;
+            top = MAT.GRASS;
+            filler = MAT.DIRT;
         }
 
         // Caves may breach the surface only in the mountains (cave entrances);
@@ -149,24 +164,24 @@ export class TerrainGenerator {
         for (let y = 0; y < height; y++) {
           let id;
           if (y === 0 || (y <= 2 && hash3(wx, y, wz, seed) < 0.5)) {
-            id = BLOCK.BEDROCK;
+            id = MAT.BEDROCK;
           } else if (y === height - 1) {
             id = top;
           } else if (y >= height - 1 - fillerDepth) {
             id = filler;
-            if (biome === BIOME.BEACH && y < height - 4) id = BLOCK.SANDSTONE;
+            if (biome === BIOME.BEACH && y < height - 4) id = MAT.SANDSTONE;
           } else {
-            id = BLOCK.STONE;
+            id = MAT.STONE;
             if (hash3(wx >> 1, y >> 1, wz >> 1, seed ^ 0x55) < 0.018 && y < 110 && hash3(wx, y, wz, seed ^ 0x66) < 0.65) {
-              id = BLOCK.COAL_ORE;
+              id = MAT.COAL_ORE;
             } else if (y < 56 && hash3(wx >> 1, y >> 1, wz >> 1, seed ^ 0x77) < 0.009 && hash3(wx, y, wz, seed ^ 0x88) < 0.6) {
-              id = BLOCK.IRON_ORE;
+              id = MAT.IRON_ORE;
             }
           }
-          if (y > 2 && y < caveCeiling && this.caveAt(x, y, z) > 0) id = BLOCK.AIR;
-          blocks[blockIndex(x, y, z)] = id;
+          if (y > 2 && y < caveCeiling && this.caveAt(x, y, z) > 0) id = MAT.AIR;
+          mats[cellIndex(x, y, z)] = id;
         }
-        for (let y = height; y <= SEA_LEVEL; y++) blocks[blockIndex(x, y, z)] = BLOCK.WATER;
+        for (let y = height; y <= SEA_LEVEL; y++) mats[cellIndex(x, y, z)] = MAT.WATER;
       }
     }
 
@@ -181,7 +196,13 @@ export class TerrainGenerator {
         const wz = baseZ + z - PAD;
         const density = 0.003 + 0.04 * smoothstep(0.1, 0.6, this.forest.fbm2D(wx / 110, wz / 110, 2));
         if (hash2(wx, wz, seed ^ 0x7ee) >= density) continue;
-        this.placeTree(chunk, x - PAD, height, z - PAD, wx, wz);
+        const lx = x - PAD;
+        const lz = z - PAD;
+        const trunk = this.placeTree(chunk, lx, height, lz, wx, wz);
+        // The tree belongs to the chunk its trunk stands in.
+        if (lx >= 0 && lz >= 0 && lx < CHUNK_SIZE && lz < CHUNK_SIZE) {
+          chunk.harvestables.push(makeHarvestable(HARVESTABLE.OAK_TREE, lx, height, lz, trunk));
+        }
       }
     }
 
@@ -192,11 +213,15 @@ export class TerrainGenerator {
         if (this.colBiome[ci] !== BIOME.PLAINS && this.colBiome[ci] !== BIOME.MOUNTAINS) continue;
         const y = this.colHeight[ci];
         if (y >= WORLD_HEIGHT - 1) continue;
-        if (blocks[blockIndex(x, y - 1, z)] !== BLOCK.GRASS || blocks[blockIndex(x, y, z)] !== BLOCK.AIR) continue;
+        if (mats[cellIndex(x, y - 1, z)] !== MAT.GRASS || mats[cellIndex(x, y, z)] !== MAT.AIR) continue;
         const r = hash2(baseX + x, baseZ + z, seed ^ 0xdec);
-        if (r < 0.14) blocks[blockIndex(x, y, z)] = BLOCK.TALL_GRASS;
-        else if (r < 0.15) blocks[blockIndex(x, y, z)] = BLOCK.RED_FLOWER;
-        else if (r < 0.162) blocks[blockIndex(x, y, z)] = BLOCK.YELLOW_FLOWER;
+        let plant = 0;
+        if (r < 0.14) plant = HARVESTABLE.TALL_GRASS;
+        else if (r < 0.15) plant = HARVESTABLE.RED_FLOWER;
+        else if (r < 0.162) plant = HARVESTABLE.YELLOW_FLOWER;
+        if (!plant) continue;
+        mats[cellIndex(x, y, z)] = PLANT_MATERIAL[plant];
+        chunk.harvestables.push(makeHarvestable(plant, x, y, z));
       }
     }
   }
@@ -207,9 +232,9 @@ export class TerrainGenerator {
     const topY = baseY + trunk;
     const set = (x, y, z, id, overwrite) => {
       if (x < 0 || z < 0 || x >= CHUNK_SIZE || z >= CHUNK_SIZE || y < 0 || y >= WORLD_HEIGHT) return;
-      const i = blockIndex(x, y, z);
-      const cur = chunk.blocks[i];
-      if (overwrite || cur === BLOCK.AIR || cur === BLOCK.TALL_GRASS) chunk.blocks[i] = id;
+      const i = cellIndex(x, y, z);
+      const cur = chunk.materials[i];
+      if (overwrite || cur === MAT.AIR || cur === MAT.TALL_GRASS) chunk.materials[i] = id;
     };
     for (let y = topY - 3; y <= topY; y++) {
       const radius = y >= topY - 1 ? 1 : 2;
@@ -217,12 +242,13 @@ export class TerrainGenerator {
         for (let dx = -radius; dx <= radius; dx++) {
           const corner = Math.abs(dx) === radius && Math.abs(dz) === radius;
           if (corner && (y === topY || hash3(wx + dx, y, wz + dz, seed ^ 0x1eaf) < 0.5)) continue;
-          set(lx + dx, y, lz + dz, BLOCK.LEAVES, false);
+          set(lx + dx, y, lz + dz, MAT.LEAVES, false);
         }
       }
     }
-    for (let y = baseY; y < topY; y++) set(lx, y, lz, BLOCK.LOG, true);
-    set(lx, baseY - 1, lz, BLOCK.DIRT, true);
+    for (let y = baseY; y < topY; y++) set(lx, y, lz, MAT.LOG, true);
+    set(lx, baseY - 1, lz, MAT.DIRT, true);
+    return trunk;
   }
 
   sampleCaveField(baseX, baseZ, maxY) {

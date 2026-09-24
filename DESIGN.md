@@ -15,8 +15,8 @@ stylized terrain and objects (see *Art style*).
 | Phase | Scope | Status |
 |---|---|---|
 | 0 | Foundation: Three.js upgrade, colour management, tests, benchmark, flags, these docs | **Done** |
-| 1 | Data model: material + density grid, building pieces, harvestables, IndexedDB saves | Next |
-| 2 | Smooth terrain (Surface Nets) and new world generation | Planned |
+| 1 | Data model: material + density grid, building pieces, harvestables, IndexedDB saves | **Done** |
+| 2 | Smooth terrain (Surface Nets) and new world generation | Next |
 | 3 | Stylized terrain look | Planned |
 | 4 | Digging and terrain placement, tool tiers | Planned |
 | 5 | Harvesting: trees, rocks, ore, plants | Planned |
@@ -43,21 +43,62 @@ minified ES module and resolved through an import map in `index.html`, so
 | `flags.js` | Feature flags for unfinished systems |
 | `bench.js` | `?bench` benchmark mode and frame-time statistics |
 | `noise.js` | Seeded PRNG, simplex noise, fBm, hashes |
-| `blocks.js` | Block registry as typed lookup tables (becomes materials / items / pieces in Phase 1) |
-| `chunk.js` | 16×128×16 chunk storage and light |
-| `worldgen.js` | Deterministic terrain, biomes, caves, ores, trees |
+| `materials.js` | What fills a grid cell: material registry as typed lookup tables, density constants |
+| `items.js` | What the player carries: item registry (stable ids), drops, the creative palette |
+| `pieces.js` | Building-piece types, tiers, cell slots and keys (gameplay in Phase 6) |
+| `harvestables.js` | Trees, plants, rocks and ore nodes: types, regrow times, records |
+| `chunk.js` | 16×128×16 grid chunk: material, density and light per cell; harvestables; pieces |
+| `worldgen.js` | Deterministic terrain, biomes, caves, ores, trees and plants (with harvestable records) |
+| `save.js` | ChunkDelta (the player's changes to a chunk) and its binary format; world metadata |
+| `storage.js` | IndexedDB reads and writes |
+| `persistence.js` | Load on start, restore the player, autosave, delete |
 | `lighting.js` | Sky and block light flood fill with incremental updates |
 | `mesher.js` | Chunk meshing (cube faces today; Surface Nets from Phase 2) |
-| `world.js` | Chunk streaming (generate → light → mesh) under a frame budget, block API, raycast |
+| `world.js` | Chunk streaming (generate → light → mesh) under a frame budget, grid API (`getMaterial`, `getDensity`, `setCell`), deltas, raycast |
 | `shaders.js`, `sky.js`, `water.js` | Custom materials, day/night cycle, water passes |
 | `physics.js`, `player.js`, `interaction.js`, `mobs.js` | Movement, collision, mining/placing, enemies |
 | `inventory.js`, `ui.js`, `sound.js`, `input.js` | Items, HUD and menus, audio, controls |
 | `main.js` | Bootstraps everything and runs the loop |
 
-Modules that don't touch Three.js or the DOM (`noise`, `blocks`, `chunk`,
-`worldgen`, `lighting`, `mesher`, `inventory`, `physics`, `flags`, and the
-maths in `bench`) are the game's logic core. They're covered by `npm test`,
-and new gameplay logic should stay DOM-free so it can be tested the same way.
+Modules that don't touch the DOM are the game's logic core and are covered
+by `npm test`: the registries, `noise`, `chunk`, `worldgen`, `lighting`,
+`mesher`, `world`, `save`, `inventory`, `physics`, `flags` and the maths in
+`bench` and `persistence`. The tests resolve `'three'` to the vendored build
+through a Node hook (`tests/setup.js`), mirroring the import map, so even
+`world.js` runs in Node. Keep new gameplay logic DOM-free so it can be
+tested the same way.
+
+## World data model
+
+The world is three kinds of data. Gameplay reads them; rendering is
+derived from them.
+
+1. **Terrain grid.** 1 m cells in 16×128×16 chunks. Each cell has a
+   material id (`Uint8`) and a signed density (`Int8`, −127…127). A cell is
+   filled when density > 0 and empty when ≤ 0, and an empty cell is always
+   stored as `AIR`. For now cells are either full (127) or empty (−127),
+   which is what the cube mesher expects. Phase 2's generator writes smooth
+   densities for Surface Nets, and Phase 4's dig tool lowers them
+   gradually. Light (sky and block, 4 bits each) is stored per cell too.
+   About 96 KiB per chunk.
+2. **Building pieces.** A sparse map per chunk (`chunk.pieces`), keyed by
+   cell index × 8 + slot. Each cell has slots for a floor, four edges (walls,
+   doors, fences) and a centre object, so a floor, four walls and a chest can
+   share a cell. A piece stores type, tier, rotation and health. The
+   registry is in `pieces.js`; placement gameplay arrives in Phase 6.
+3. **Harvestable objects.** World generation emits a deterministic list of
+   records per chunk (`chunk.harvestables`: type, cell, size). Only state the
+   player changes is stored (`chunk.harvestState`: record index → state and
+   regrow timer). Trees and plants get records today, and are still drawn
+   by legacy log, leaf and plant materials at the same cells until Phase 5.
+
+Items (`items.js`) are separate from all three: inventory slots hold item
+ids, and each item says which material it places for now.
+
+**Legacy materials.** `MAT_LEGACY` marks materials left over from the
+block prototype. Trees and plants move to harvestables in Phase 5; placed
+planks, cobblestone, glass, bricks, torches and glowstone move to building
+pieces in Phase 6. New code shouldn't add legacy materials.
 
 ## Decisions
 
@@ -107,26 +148,58 @@ its system is done and on by default.
 3. `?bench` runs. Cloud sessions only have software rendering, so real FPS
    numbers come from the owner's hardware via the Pages link.
 
+**D7: saves store only what changed (Phase 1).** The world regenerates
+from its seed, so a save holds, per chunk, a `ChunkDelta`: edited cells,
+placed pieces and harvest state, plus world metadata (player, inventory,
+time). A world is identified by its seed; without `?seed` the last world
+played is resumed. See *Saves* for the format and compatibility rules.
+
 ## Saves
 
-There are none yet: only settings are stored (`localStorage` key
-`7nights.settings`). Phase 1 adds IndexedDB saves of modified chunks with a
-format version number from the first release, so later formats can migrate
-older saves.
+- **Where:** IndexedDB database `7nights`, stores `worlds` (metadata, keyed
+  by world id) and `chunks` (encoded deltas, keyed by `worldId|cx,cz`).
+  Settings stay in `localStorage` (`7nights.settings`); the last world played
+  is `7nights.lastWorld`.
+- **When:** every 30 s of play, when the game is paused, and when the tab is
+  hidden or closed. Metadata and changed chunks are written in one
+  transaction. Benchmarks (`?bench`) never read or write saves.
+- **Chunk format:** little-endian binary, documented at the top of
+  `save.js`. Magic `N7CH` and a version number, then edited cells (4 bytes
+  each), pieces (12 bytes) and harvest states (8 bytes). An empty delta is
+  28 bytes.
+- **Compatibility rules:**
+  - Changing the chunk or metadata format: bump its version, keep reading
+    every older version (migrate on load), and add a test with an old buffer.
+  - Changing world generation so existing terrain changes: bump
+    `GENERATOR_VERSION` in `worldgen.js`. Saves from another generator
+    version are not loaded (their edits would land on different terrain).
+    The player is told, starts fresh, and the old save is replaced.
+    **Phase 2 changes generation, so worlds saved before Phase 2 won't carry
+    over.**
+  - Item, piece and harvestable type ids are saved: never renumber them.
+- **What isn't saved:** mobs, dropped particles and the day count (the
+  7-night counter arrives in Phase 6b).
 
 ## Performance budget
 
 Target: 60 FPS on a GTX 1060-class GPU, and on integrated graphics at the
 Low preset (presets arrive in Phase 11). Performance beats visual extras.
 
-Baseline at the end of Phase 0 (seed `demo`, render distance 6; CPU timings
-are meaningful, FPS is not, as these were measured with software rendering):
+Measurements on seed `demo` at render distance 6. CPU timings are
+meaningful; the cloud sessions that take them only have software rendering,
+so FPS figures come from `?bench` on real hardware.
 
-| Metric | Value |
-|---|---|
-| Generate / light / mesh one chunk (median) | 0.7 / 1.8 / 1.3 ms |
-| World triangles, render distance 6 | ~400–480k |
-| Render passes per frame | 3 (water reflection and refraction; removed in Phase 8) |
+| Metric | Phase 0 | Phase 1 |
+|---|---|---|
+| Generate one chunk (median) | 0.7 ms | 0.96 ms including density fill and delta (generation alone 0.75 ms) |
+| Light / mesh one chunk (median) | 1.8 / 1.3 ms | 1.6–2.1 / 1.2–1.3 ms (unchanged) |
+| Grid memory per chunk | 64 KiB | 96 KiB (density added) |
+| World triangles | ~400–480k | unchanged |
+| Draw calls per frame | ~290 across 3 passes | unchanged |
+| Save size | — | 28 bytes per changed chunk + 4 bytes per edited cell |
+
+Water costs two extra render passes per frame (reflection and refraction),
+removed in Phase 8.
 
 ## Art style
 

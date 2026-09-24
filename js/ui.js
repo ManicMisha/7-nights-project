@@ -1,6 +1,6 @@
 // DOM HUD: hotbar, hearts, debug overlay, inventory screen, menus.
 
-import { BLOCK_NAME, PLACEABLE_BLOCKS } from './blocks.js';
+import { ITEM_NAME, PALETTE_ITEMS, itemIconMaterial } from './items.js';
 import { HOTBAR_SIZE, INVENTORY_SIZE, MAX_STACK } from './inventory.js';
 import { PLAYER } from './config.js';
 
@@ -70,11 +70,11 @@ export class UI {
     const img = el.querySelector('img');
     const count = el.querySelector('.count');
     if (stack) {
-      const src = this.textures.icon(stack.id);
+      const src = this.textures.icon(itemIconMaterial(stack.id));
       if (img.getAttribute('src') !== src) img.setAttribute('src', src);
       img.style.visibility = 'visible';
       count.textContent = stack.count > 1 ? String(stack.count) : '';
-      el.title = BLOCK_NAME[stack.id];
+      el.title = ITEM_NAME[stack.id];
     } else {
       img.style.visibility = 'hidden';
       count.textContent = '';
@@ -127,7 +127,7 @@ export class UI {
     for (let i = 0; i < HOTBAR_SIZE; i++) make(i, hotbar);
 
     const palette = $('palette');
-    for (const id of PLACEABLE_BLOCKS) {
+    for (const id of PALETTE_ITEMS) {
       const el = this.slotElement('palette-slot');
       this.fillSlot(el, { id, count: 1 });
       el.addEventListener('mousedown', (e) => {
@@ -150,7 +150,7 @@ export class UI {
     if (this.lastSelected !== inv.selected || this.lastSelectedId !== inv.selectedStack?.id) {
       this.lastSelected = inv.selected;
       this.lastSelectedId = inv.selectedStack?.id;
-      if (inv.selectedStack) this.toast(BLOCK_NAME[inv.selectedStack.id]);
+      if (inv.selectedStack) this.toast(ITEM_NAME[inv.selectedStack.id]);
     }
   }
 
@@ -161,7 +161,7 @@ export class UI {
       return;
     }
     el.hidden = false;
-    el.querySelector('img').src = this.textures.icon(this.cursor.id);
+    el.querySelector('img').src = this.textures.icon(itemIconMaterial(this.cursor.id));
     el.querySelector('.count').textContent = this.cursor.count > 1 ? String(this.cursor.count) : '';
   }
 

@@ -4,7 +4,7 @@
 
 import * as THREE from 'three';
 import { MOBS, WORLD_HEIGHT } from './config.js';
-import { BLOCK, BLOCK_SOLID } from './blocks.js';
+import { MAT, MAT_SOLID } from './materials.js';
 import { moveEntity, isInWater } from './physics.js';
 
 function pixelTexture(pixels, palette) {
@@ -191,16 +191,16 @@ export class MobManager {
     let y = underground ? Math.floor(Math.max(4, Math.min(top, p.y + (Math.random() - 0.5) * 30))) : top + 1;
     // Settle onto a floor.
     for (let i = 0; i < 24 && y > 1; i++) {
-      const below = this.world.getBlock(x, y - 1, z);
-      if (below !== null && BLOCK_SOLID[below] && below !== BLOCK.LEAVES) break;
+      const below = this.world.getMaterial(x, y - 1, z);
+      if (below !== null && MAT_SOLID[below] && below !== MAT.LEAVES) break;
       y--;
     }
     if (y <= 1 || y >= WORLD_HEIGHT - 2) return;
-    const feet = this.world.getBlock(x, y, z);
-    const head = this.world.getBlock(x, y + 1, z);
-    const below = this.world.getBlock(x, y - 1, z);
-    const open = (id) => id !== null && !BLOCK_SOLID[id] && id !== BLOCK.WATER;
-    if (!open(feet) || !open(head) || !BLOCK_SOLID[below] || below === BLOCK.LEAVES) return;
+    const feet = this.world.getMaterial(x, y, z);
+    const head = this.world.getMaterial(x, y + 1, z);
+    const below = this.world.getMaterial(x, y - 1, z);
+    const open = (id) => id !== null && !MAT_SOLID[id] && id !== MAT.WATER;
+    if (!open(feet) || !open(head) || !MAT_SOLID[below] || below === MAT.LEAVES) return;
     if (this.effectiveLight(x, y, z) > MOBS.maxSpawnLight) return;
     if (Math.hypot(x + 0.5 - p.x, y - p.y, z + 0.5 - p.z) < 14) return;
 
