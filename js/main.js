@@ -19,7 +19,7 @@ import { Sound } from './sound.js';
 
 const THREE = window.THREE;
 const $ = (id) => document.getElementById(id);
-const SETTINGS_KEY = 'blockscape.settings';
+const SETTINGS_KEY = '7nights.settings';
 
 function loadSettings() {
   try {
@@ -353,7 +353,7 @@ class Game {
     const target = this.interaction.target;
     const info3 = this.renderer.info.render;
     return [
-      `Blockscape  ${this.fps} fps`,
+      `7 Nights  ${this.fps} fps`,
       `XYZ: ${p.x.toFixed(2)} / ${p.y.toFixed(2)} / ${p.z.toFixed(2)}`,
       `Chunk: ${bx >> 4}, ${bz >> 4}   Biome: ${BIOME_NAME[info.biome]}`,
       `Light: sky ${light >> 4}  block ${light & 15}`,

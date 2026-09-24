@@ -1,4 +1,4 @@
-# Blockscape
+# 7 Nights
 
 A Minecraft-inspired voxel sandbox built with plain HTML5, ES modules and
 Three.js r128. It is entirely static: no build step and no dependencies to
