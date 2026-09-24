@@ -1,6 +1,6 @@
 // 36-slot inventory (slots 0–8 are the hotbar) with stacking.
 
-import { BLOCK } from './blocks.js';
+import { MAT } from './materials.js';
 
 export const HOTBAR_SIZE = 9;
 export const INVENTORY_SIZE = 36;
@@ -23,8 +23,8 @@ export class Inventory {
 
   giveStarterKit() {
     const kit = [
-      [BLOCK.PLANKS, 64], [BLOCK.COBBLESTONE, 64], [BLOCK.TORCH, 32], [BLOCK.GLASS, 32],
-      [BLOCK.BRICKS, 64], [BLOCK.GLOWSTONE, 16], [BLOCK.LOG, 32], [BLOCK.SANDSTONE, 32], [BLOCK.DIRT, 32],
+      [MAT.PLANKS, 64], [MAT.COBBLESTONE, 64], [MAT.TORCH, 32], [MAT.GLASS, 32],
+      [MAT.BRICKS, 64], [MAT.GLOWSTONE, 16], [MAT.LOG, 32], [MAT.SANDSTONE, 32], [MAT.DIRT, 32],
     ];
     kit.forEach(([id, count], i) => {
       this.slots[i] = { id, count };

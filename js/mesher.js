@@ -10,8 +10,8 @@
 //   water goes into a second one so it can use the reflective shader.
 
 import {
-  BLOCK, RENDER, BLOCK_RENDER, BLOCK_OPAQUE, BLOCK_TILES,
-} from './blocks.js';
+  MAT, RENDER, MAT_RENDER, MAT_OPAQUE, MAT_TILES,
+} from './materials.js';
 import { CHUNK_SIZE, WORLD_HEIGHT } from './config.js';
 import { blockIndex } from './chunk.js';
 
@@ -146,7 +146,7 @@ function gatherPadded(world, chunk, y0, y1) {
           let pi = pidx(xs + dx * CHUNK_SIZE, y, pz);
           let si = blockIndex(xs, y, z);
           for (let x = xs; x <= xe; x++, pi++, si++) {
-            pBlocks[pi] = src ? src.blocks[si] : BLOCK.STONE;
+            pBlocks[pi] = src ? src.blocks[si] : MAT.STONE;
             pLight[pi] = src ? src.light[si] : 0;
           }
         }
@@ -169,16 +169,16 @@ export function buildChunkGeometry(world, chunk) {
   const y0 = chunk.minY;
   const y1 = chunk.maxY;
   gatherPadded(world, chunk, Math.max(0, y0 - 1), Math.min(WORLD_HEIGHT - 1, y1 + 1));
-  if (y0 === 0) fillBoundaryLayer(-1, BLOCK.BEDROCK, 0);
-  if (y1 === WORLD_HEIGHT - 1) fillBoundaryLayer(WORLD_HEIGHT, BLOCK.AIR, 0xf0);
+  if (y0 === 0) fillBoundaryLayer(-1, MAT.BEDROCK, 0);
+  if (y1 === WORLD_HEIGHT - 1) fillBoundaryLayer(WORLD_HEIGHT, MAT.AIR, 0xf0);
 
   for (let y = y0; y <= y1; y++) {
     for (let z = 0; z < CHUNK_SIZE; z++) {
       let p = pidx(0, y, z);
       for (let x = 0; x < CHUNK_SIZE; x++, p++) {
         const id = pBlocks[p];
-        if (id === BLOCK.AIR) continue;
-        const render = BLOCK_RENDER[id];
+        if (id === MAT.AIR) continue;
+        const render = MAT_RENDER[id];
         if (render === RENDER.CROSS) emitCross(x, y, z, id, p);
         else if (render === RENDER.WATER) emitWater(x, y, z, p);
         else emitBlock(x, y, z, id, p);
@@ -192,9 +192,9 @@ function emitBlock(x, y, z, id, p) {
   for (let f = 0; f < 6; f++) {
     const face = FACES[f];
     const nb = pBlocks[p + face.nOff];
-    if (BLOCK_OPAQUE[nb]) continue;
-    if (nb === id && id === BLOCK.GLASS) continue;
-    const layer = BLOCK_TILES[id * 3 + face.group];
+    if (MAT_OPAQUE[nb]) continue;
+    if (nb === id && id === MAT.GLASS) continue;
+    const layer = MAT_TILES[id * 3 + face.group];
     const fp = p + face.nOff;
     let ao0 = 0;
     let ao1 = 0;
@@ -202,9 +202,9 @@ function emitBlock(x, y, z, id, p) {
     let ao3 = 0;
     for (let c = 0; c < 4; c++) {
       const corner = face.corners[c];
-      const s1 = BLOCK_OPAQUE[pBlocks[p + corner.side1]];
-      const s2 = BLOCK_OPAQUE[pBlocks[p + corner.side2]];
-      const cc = BLOCK_OPAQUE[pBlocks[p + corner.corner]];
+      const s1 = MAT_OPAQUE[pBlocks[p + corner.side1]];
+      const s2 = MAT_OPAQUE[pBlocks[p + corner.side2]];
+      const cc = MAT_OPAQUE[pBlocks[p + corner.corner]];
       const ao = s1 && s2 ? 0 : 3 - (s1 + s2 + cc);
 
       // Smooth light: average over the non-opaque cells around this corner.
@@ -234,7 +234,7 @@ const CROSS_QUADS = [
 ];
 
 function emitCross(x, y, z, id, p) {
-  const layer = BLOCK_TILES[id * 3 + 2];
+  const layer = MAT_TILES[id * 3 + 2];
   const l = pLight[p];
   const sky = (l >> 4) * 17;
   const blk = (l & 15) * 17;
@@ -252,11 +252,11 @@ function emitCross(x, y, z, id, p) {
 }
 
 function emitWater(x, y, z, p) {
-  const aboveIsWater = pBlocks[p + offset(0, 1, 0)] === BLOCK.WATER;
+  const aboveIsWater = pBlocks[p + offset(0, 1, 0)] === MAT.WATER;
   for (let f = 0; f < 6; f++) {
     const face = FACES[f];
     const nb = pBlocks[p + face.nOff];
-    if (nb === BLOCK.WATER || BLOCK_OPAQUE[nb]) continue;
+    if (nb === MAT.WATER || MAT_OPAQUE[nb]) continue;
     const l = pLight[p + face.nOff] || pLight[p];
     const sky = (l >> 4) * 17;
     const blk = (l & 15) * 17;

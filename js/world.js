@@ -6,7 +6,7 @@
 import * as THREE from 'three';
 import { Chunk, chunkKey, blockIndex } from './chunk.js';
 import { CHUNK_SIZE, WORLD_HEIGHT } from './config.js';
-import { BLOCK, BLOCK_SOLID } from './blocks.js';
+import { MAT, MAT_SOLID } from './materials.js';
 import { LightEngine } from './lighting.js';
 import { buildChunkGeometry } from './mesher.js';
 
@@ -53,9 +53,9 @@ export class World {
   }
 
   /** Block id at a world position; null if that chunk isn't generated yet. */
-  getBlock(x, y, z) {
-    if (y < 0) return BLOCK.BEDROCK;
-    if (y >= WORLD_HEIGHT) return BLOCK.AIR;
+  getMaterial(x, y, z) {
+    if (y < 0) return MAT.BEDROCK;
+    if (y >= WORLD_HEIGHT) return MAT.AIR;
     const chunk = this.getChunk(x >> 4, z >> 4);
     if (!chunk || !chunk.generated) return null;
     return chunk.blocks[blockIndex(x & 15, y, z & 15)];
@@ -63,8 +63,8 @@ export class World {
 
   /** True if the cell blocks movement. Unloaded terrain counts as solid. */
   isSolid(x, y, z) {
-    const id = this.getBlock(x, y, z);
-    return id === null ? true : BLOCK_SOLID[id] === 1;
+    const id = this.getMaterial(x, y, z);
+    return id === null ? true : MAT_SOLID[id] === 1;
   }
 
   /** Packed light byte (sky << 4 | block) at a world position. */
@@ -84,7 +84,7 @@ export class World {
   }
 
   /** Changes a block, updates lighting and synchronously re-meshes affected chunks. */
-  setBlock(x, y, z, id) {
+  setMaterial(x, y, z, id) {
     if (y < 0 || y >= WORLD_HEIGHT) return false;
     const chunk = this.getChunk(x >> 4, z >> 4);
     if (!chunk || !chunk.generated) return false;
@@ -118,13 +118,13 @@ export class World {
 
   updateColumnBounds(chunk, lx, y, lz, id) {
     const col = lz * CHUNK_SIZE + lx;
-    if (id !== BLOCK.AIR) {
+    if (id !== MAT.AIR) {
       if (y < chunk.minY) chunk.minY = y;
       if (y > chunk.maxY) chunk.maxY = y;
       if (y + 1 > chunk.heightMap[col]) chunk.heightMap[col] = y + 1;
     } else if (y + 1 === chunk.heightMap[col]) {
       let top = y;
-      while (top > 0 && chunk.blocks[blockIndex(lx, top - 1, lz)] === BLOCK.AIR) top--;
+      while (top > 0 && chunk.blocks[blockIndex(lx, top - 1, lz)] === MAT.AIR) top--;
       chunk.heightMap[col] = top;
     }
   }
@@ -292,7 +292,7 @@ export class World {
     const normal = [0, 0, 0];
     let t = 0;
     while (t <= maxDist) {
-      const id = this.getBlock(x, y, z);
+      const id = this.getMaterial(x, y, z);
       if (id !== null && predicate(id)) {
         return { x, y, z, id, normal: normal.slice(), distance: t };
       }

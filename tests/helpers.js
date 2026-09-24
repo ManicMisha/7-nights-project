@@ -3,7 +3,7 @@
 
 import { Chunk, chunkKey, blockIndex } from '../js/chunk.js';
 import { CHUNK_SIZE } from '../js/config.js';
-import { BLOCK } from '../js/blocks.js';
+import { MAT } from '../js/materials.js';
 import { LightEngine } from '../js/lighting.js';
 
 export class TestWorld {
@@ -36,11 +36,11 @@ export class TestWorld {
     }
   }
 
-  getBlock(x, y, z) {
+  getMaterial(x, y, z) {
     return this.getChunk(x >> 4, z >> 4).blocks[blockIndex(x & 15, y, z & 15)];
   }
 
-  setBlock(x, y, z, id) {
+  setMaterial(x, y, z, id) {
     this.getChunk(x >> 4, z >> 4).blocks[blockIndex(x & 15, y, z & 15)] = id;
     return this.light.onBlockChanged(x, y, z, id);
   }
@@ -59,7 +59,7 @@ export function flatStone(height) {
   return (chunk) => {
     for (let y = 0; y < height; y++) {
       for (let z = 0; z < CHUNK_SIZE; z++) {
-        for (let x = 0; x < CHUNK_SIZE; x++) chunk.blocks[blockIndex(x, y, z)] = BLOCK.STONE;
+        for (let x = 0; x < CHUNK_SIZE; x++) chunk.blocks[blockIndex(x, y, z)] = MAT.STONE;
       }
     }
   };

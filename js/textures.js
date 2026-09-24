@@ -4,7 +4,7 @@
 // state. The same pixels are reused for hotbar icons and break particles.
 
 import * as THREE from 'three';
-import { TILES, BLOCK_RENDER, BLOCK_TILES, RENDER } from './blocks.js';
+import { TILES, MAT_RENDER, MAT_TILES, RENDER } from './materials.js';
 import { mulberry32, hashSeed } from './noise.js';
 
 export const TILE_SIZE = 32;
@@ -485,9 +485,9 @@ export class TextureLibrary {
     canvas.height = size;
     const ctx = canvas.getContext('2d');
     ctx.imageSmoothingEnabled = false;
-    const top = this.tileCanvas(BLOCK_TILES[blockId * 3]);
-    const side = this.tileCanvas(BLOCK_TILES[blockId * 3 + 2]);
-    if (BLOCK_RENDER[blockId] === RENDER.CROSS) {
+    const top = this.tileCanvas(MAT_TILES[blockId * 3]);
+    const side = this.tileCanvas(MAT_TILES[blockId * 3 + 2]);
+    if (MAT_RENDER[blockId] === RENDER.CROSS) {
       ctx.drawImage(side, 8, 8, 48, 48);
     } else {
       const h = size / 4; // quarter height for isometric projection

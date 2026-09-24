@@ -6,7 +6,7 @@
 // the classic two-queue "remove then re-flood" algorithm, so only the
 // affected region is touched.
 
-import { BLOCK_OPAQUE, BLOCK_ATTEN, BLOCK_EMIT } from './blocks.js';
+import { MAT_OPAQUE, MAT_ATTEN, MAT_EMIT } from './materials.js';
 import { CHUNK_SIZE, WORLD_HEIGHT } from './config.js';
 import { blockIndex } from './chunk.js';
 
@@ -94,9 +94,9 @@ export class LightEngine {
         for (let y = WORLD_HEIGHT - 1; y >= 0; y--) {
           const i = blockIndex(x, y, z);
           const id = blocks[i];
-          if (BLOCK_OPAQUE[id]) level = 0;
-          else if (BLOCK_ATTEN[id]) level = Math.max(0, level - BLOCK_ATTEN[id]);
-          light[i] = (level << SKY) | BLOCK_EMIT[id];
+          if (MAT_OPAQUE[id]) level = 0;
+          else if (MAT_ATTEN[id]) level = Math.max(0, level - MAT_ATTEN[id]);
+          light[i] = (level << SKY) | MAT_EMIT[id];
         }
       }
     }
@@ -141,7 +141,7 @@ export class LightEngine {
     add.head = 0;
     add.tail = 0;
     for (let i = 0; i < blocks.length; i++) {
-      if (BLOCK_EMIT[blocks[i]]) {
+      if (MAT_EMIT[blocks[i]]) {
         const x = i & 15;
         const z = (i >> 4) & 15;
         const y = i >> 8;
@@ -179,9 +179,9 @@ export class LightEngine {
         if (!nchunk) continue;
         const ni = blockIndex(nx & 15, ny, nz & 15);
         const id = nchunk.blocks[ni];
-        if (BLOCK_OPAQUE[id]) continue;
-        let next = level - 1 - BLOCK_ATTEN[id];
-        if (shift === SKY && d === DOWN && level === 15 && BLOCK_ATTEN[id] === 0) next = 15;
+        if (MAT_OPAQUE[id]) continue;
+        let next = level - 1 - MAT_ATTEN[id];
+        if (shift === SKY && d === DOWN && level === 15 && MAT_ATTEN[id] === 0) next = 15;
         const cur = (nchunk.light[ni] >> shift) & 15;
         if (cur < next) {
           nchunk.light[ni] = (nchunk.light[ni] & ~(15 << shift)) | (next << shift);
@@ -243,7 +243,7 @@ export class LightEngine {
           nchunk.light[ni] &= ~(15 << shift);
           this.markDirty(nchunk, nx & 15, nz & 15);
           rem.push(nx, ny, nz, nl);
-          const emit = shift === BLK ? BLOCK_EMIT[nchunk.blocks[ni]] : 0;
+          const emit = shift === BLK ? MAT_EMIT[nchunk.blocks[ni]] : 0;
           if (emit) {
             nchunk.light[ni] |= emit << shift;
             add.push(nx, ny, nz);
@@ -256,13 +256,13 @@ export class LightEngine {
     rem.reset();
 
     // Re-seed the changed cell itself.
-    if (shift === BLK && BLOCK_EMIT[newId]) {
-      chunk.light[i] |= BLOCK_EMIT[newId] << shift;
+    if (shift === BLK && MAT_EMIT[newId]) {
+      chunk.light[i] |= MAT_EMIT[newId] << shift;
       add.push(x, y, z);
     }
-    if (!BLOCK_OPAQUE[newId]) {
+    if (!MAT_OPAQUE[newId]) {
       if (shift === SKY && y === WORLD_HEIGHT - 1) {
-        chunk.light[i] |= Math.max(0, 15 - BLOCK_ATTEN[newId]) << shift;
+        chunk.light[i] |= Math.max(0, 15 - MAT_ATTEN[newId]) << shift;
         add.push(x, y, z);
       }
       for (const dir of DIRS) {

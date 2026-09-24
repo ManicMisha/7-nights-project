@@ -3,7 +3,7 @@
 
 import * as THREE from 'three';
 import { PLAYER, WORLD_HEIGHT } from './config.js';
-import { BLOCK } from './blocks.js';
+import { MAT } from './materials.js';
 import { moveEntity, isInWater } from './physics.js';
 
 export class Player {
@@ -51,8 +51,8 @@ export class Player {
         const sz = Math.floor(z + Math.sin((a / 8) * Math.PI * 2) * r);
         const top = this.world.surfaceY(sx, sz);
         if (top < 0) continue;
-        const id = this.world.getBlock(sx, top, sz);
-        if (id === BLOCK.WATER || id === BLOCK.LEAVES) continue;
+        const id = this.world.getMaterial(sx, top, sz);
+        if (id === MAT.WATER || id === MAT.LEAVES) continue;
         this.spawnPoint.set(sx + 0.5, top + 1, sz + 0.5);
         this.respawn();
         return true;
@@ -130,7 +130,7 @@ export class Player {
 
     this.inWater = isInWater(this.world, this, 0.3);
     const eye = this.eye;
-    this.headInWater = this.world.getBlock(Math.floor(eye.x), Math.floor(eye.y + 0.1), Math.floor(eye.z)) === BLOCK.WATER;
+    this.headInWater = this.world.getMaterial(Math.floor(eye.x), Math.floor(eye.y + 0.1), Math.floor(eye.z)) === MAT.WATER;
 
     if (this.flying) {
       const speed = PLAYER.flySpeed * (sprint ? 2 : 1);

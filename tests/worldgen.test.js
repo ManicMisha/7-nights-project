@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { TerrainGenerator, BIOME } from '../js/worldgen.js';
 import { Chunk, blockIndex } from '../js/chunk.js';
-import { BLOCK } from '../js/blocks.js';
+import { MAT } from '../js/materials.js';
 import { CHUNK_SIZE, SEA_LEVEL, WORLD_HEIGHT } from '../js/config.js';
 import { hashSeed } from '../js/noise.js';
 
@@ -26,9 +26,9 @@ test('bedrock floor and no floating water above sea level', () => {
   const chunk = generate('demo', 2, -1);
   for (let z = 0; z < CHUNK_SIZE; z++) {
     for (let x = 0; x < CHUNK_SIZE; x++) {
-      assert.equal(chunk.blocks[blockIndex(x, 0, z)], BLOCK.BEDROCK);
+      assert.equal(chunk.blocks[blockIndex(x, 0, z)], MAT.BEDROCK);
       for (let y = SEA_LEVEL + 1; y < WORLD_HEIGHT; y++) {
-        assert.notEqual(chunk.blocks[blockIndex(x, y, z)], BLOCK.WATER);
+        assert.notEqual(chunk.blocks[blockIndex(x, y, z)], MAT.WATER);
       }
     }
   }
@@ -44,6 +44,6 @@ test('column info matches generated surface height', () => {
     const below = chunk.blocks[blockIndex(x, height - 1, z)];
     // The top block may be carved by a cave entrance in the mountains, but
     // everywhere else the column is solid right up to its reported height.
-    if (biome !== BIOME.MOUNTAINS) assert.notEqual(below, BLOCK.AIR);
+    if (biome !== BIOME.MOUNTAINS) assert.notEqual(below, MAT.AIR);
   }
 });

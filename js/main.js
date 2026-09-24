@@ -3,7 +3,7 @@
 import * as THREE from 'three';
 import { DEFAULT_SETTINGS, CHUNK_SIZE } from './config.js';
 import { hashSeed } from './noise.js';
-import { BLOCK_NAME } from './blocks.js';
+import { MAT_NAME } from './materials.js';
 import { TextureLibrary } from './textures.js';
 import { sharedUniforms, createTerrainMaterial, createWaterMaterial } from './shaders.js';
 import { TerrainGenerator, BIOME_NAME } from './worldgen.js';
@@ -388,7 +388,7 @@ class Game {
       `Mobs: ${this.mobs.mobs.length}   Kills: ${this.mobs.kills}`,
       `Time: ${this.cycle.clock}   Seed: ${this.seedText}`,
       `Three.js r${this.threeRevision}   Flags: ${Object.entries(this.flags).filter(([, on]) => on).map(([k]) => k).join(', ') || 'none'}`,
-      `Target: ${target ? `${BLOCK_NAME[target.id]} @ ${target.x}, ${target.y}, ${target.z}` : '-'}`,
+      `Target: ${target ? `${MAT_NAME[target.id]} @ ${target.x}, ${target.y}, ${target.z}` : '-'}`,
     ].join('\n');
   }
 }
