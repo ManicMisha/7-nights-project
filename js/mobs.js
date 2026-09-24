@@ -2,11 +2,10 @@
 // night and in unlit caves at any time — hunt the player, take knockback,
 // and burn up when caught in daylight.
 
+import * as THREE from 'three';
 import { MOBS, WORLD_HEIGHT } from './config.js';
 import { BLOCK, BLOCK_SOLID } from './blocks.js';
 import { moveEntity, isInWater } from './physics.js';
-
-const THREE = window.THREE;
 
 function pixelTexture(pixels, palette) {
   const size = pixels.length;
@@ -21,6 +20,7 @@ function pixelTexture(pixels, palette) {
     });
   });
   const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
   tex.magFilter = THREE.NearestFilter;
   tex.minFilter = THREE.NearestFilter;
   return tex;
@@ -40,7 +40,8 @@ class ZombieAssets {
       'gGggggGg',
       'gggggggg',
     ], { g: skin, G: '#4b7b3d', k: '#1b2a18', d: '#3d6331' });
-    const shade = (hex, k) => new THREE.Color(hex).multiplyScalar(k);
+    // Shading factors are perceptual; colours are linear, hence the ^2.2.
+    const shade = (hex, k) => new THREE.Color(hex).multiplyScalar(Math.pow(k, 2.2));
     this.headMaterials = [
       new THREE.MeshBasicMaterial({ color: shade(skin, 0.75) }),
       new THREE.MeshBasicMaterial({ color: shade(skin, 0.75) }),
@@ -57,7 +58,10 @@ class ZombieAssets {
       const g = new THREE.BoxGeometry(w, h, d);
       const shades = [0.75, 0.75, 1.0, 0.5, 0.9, 0.85];
       const colors = [];
-      for (let f = 0; f < 6; f++) for (let v = 0; v < 4; v++) colors.push(shades[f], shades[f], shades[f]);
+      for (let f = 0; f < 6; f++) {
+        const k = Math.pow(shades[f], 2.2);
+        for (let v = 0; v < 4; v++) colors.push(k, k, k);
+      }
       g.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
       return g;
     };
@@ -66,6 +70,7 @@ class ZombieAssets {
 }
 
 let assets = null;
+const HURT_TINT = new THREE.Color();
 
 class Zombie {
   constructor(position) {
@@ -140,11 +145,11 @@ class Zombie {
     const v = world.getLight(Math.floor(this.position.x), Math.floor(this.position.y + 1.5), Math.floor(this.position.z));
     const sky = (v >> 4) / 15;
     const blk = (v & 15) / 15;
-    const b = Math.max(Math.pow(sky, 1.7) * cycle.skyBrightness, Math.pow(blk, 1.7) * 0.95) + 0.05;
+    const b = Math.pow(Math.max(Math.pow(sky, 1.7) * cycle.skyBrightness, Math.pow(blk, 1.7) * 0.95) + 0.05, 2.2);
     const hurt = this.hurtTimer > 0 || this.burnTimer > 0;
     for (const m of this.materials) {
       m.color.copy(m.userData.baseColor).multiplyScalar(b);
-      if (hurt) m.color.lerp(new THREE.Color(this.burnTimer > 0 ? 1 : 0.9, this.burnTimer > 0 ? 0.45 : 0.1, 0.05), 0.55);
+      if (hurt) m.color.lerp(HURT_TINT.setRGB(this.burnTimer > 0 ? 1 : 0.9, this.burnTimer > 0 ? 0.45 : 0.1, 0.05, THREE.SRGBColorSpace), 0.55);
     }
   }
 }

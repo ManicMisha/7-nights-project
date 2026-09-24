@@ -4,10 +4,9 @@
 //   • reflection — the scene rendered from a camera mirrored about the
 //     water plane, with an oblique near plane clipping everything below it.
 
+import * as THREE from 'three';
 import { WATER_SURFACE_Y } from './config.js';
 import { sharedUniforms } from './shaders.js';
-
-const THREE = window.THREE;
 
 export class WaterRenderer {
   constructor(renderer, scene, camera, world, material) {

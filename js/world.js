@@ -3,13 +3,12 @@
 // block get/set API, and remembers player edits so unloaded chunks come
 // back exactly as they were left.
 
+import * as THREE from 'three';
 import { Chunk, chunkKey, blockIndex } from './chunk.js';
 import { CHUNK_SIZE, WORLD_HEIGHT } from './config.js';
 import { BLOCK, BLOCK_SOLID } from './blocks.js';
 import { LightEngine } from './lighting.js';
 import { buildChunkGeometry } from './mesher.js';
-
-const THREE = window.THREE;
 
 export class World {
   constructor(scene, generator, materials) {

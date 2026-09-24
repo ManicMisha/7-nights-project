@@ -1,13 +1,13 @@
 // Block targeting, mining (with crack overlay & particles), placing, and
 // melee attacks on mobs.
 
+import * as THREE from 'three';
 import {
   BLOCK, BLOCK_HARDNESS, BLOCK_DROP, BLOCK_RENDER, BLOCK_SOLID, BLOCK_TILES, RENDER, isReplaceable,
 } from './blocks.js';
 import { PLAYER } from './config.js';
 import { intersectsBlock } from './physics.js';
 
-const THREE = window.THREE;
 const MAX_PARTICLES = 400;
 
 export class BlockInteraction {
@@ -186,9 +186,9 @@ export class BlockInteraction {
         vy: Math.random() * 4,
         vz: (Math.random() - 0.5) * 4,
         life: 0.5 + Math.random() * 0.5,
-        r: color[0] * (0.7 + Math.random() * 0.3),
-        g: color[1] * (0.7 + Math.random() * 0.3),
-        b: color[2] * (0.7 + Math.random() * 0.3),
+        r: Math.pow(color[0] * (0.7 + Math.random() * 0.3), 2.2),
+        g: Math.pow(color[1] * (0.7 + Math.random() * 0.3), 2.2),
+        b: Math.pow(color[2] * (0.7 + Math.random() * 0.3), 2.2),
       });
     }
   }
