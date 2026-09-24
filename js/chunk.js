@@ -1,11 +1,17 @@
-// A 16 × WORLD_HEIGHT × 16 column of blocks plus its light values.
+// A 16 × WORLD_HEIGHT × 16 column of the world grid. Each 1 m cell holds:
+//   • a material id (what fills it: stone, dirt, water, air…),
+//   • a signed density (how full it is: > 0 filled, ≤ 0 empty), and
+//   • light (sky and block light, 4 bits each).
+// It also holds the chunk's harvestable objects and, by reference, the
+// player's saved changes (see ChunkDelta in save.js).
 
 import { CHUNK_SIZE, WORLD_HEIGHT } from './config.js';
+import { MAT, defaultDensity } from './materials.js';
 
 export const CHUNK_VOLUME = CHUNK_SIZE * CHUNK_SIZE * WORLD_HEIGHT;
 
-/** Index of a local block coordinate. X varies fastest, then Z, then Y. */
-export function blockIndex(x, y, z) {
+/** Index of a local cell coordinate. X varies fastest, then Z, then Y. */
+export function cellIndex(x, y, z) {
   return (y * CHUNK_SIZE + z) * CHUNK_SIZE + x;
 }
 
@@ -19,13 +25,25 @@ export class Chunk {
     this.cx = cx;
     this.cz = cz;
     this.key = chunkKey(cx, cz);
-    this.blocks = new Uint8Array(CHUNK_VOLUME);
+    this.materials = new Uint8Array(CHUNK_VOLUME);
+    // Signed density per cell, −127…127. A cell is filled by its material
+    // when density > 0 and empty when ≤ 0 (so AIR always has density ≤ 0).
+    // Until the smooth mesher arrives (Phase 2) cells are either fully
+    // filled or fully empty.
+    this.density = new Int8Array(CHUNK_VOLUME);
     // Light nibbles: high 4 bits = sky light, low 4 bits = block light.
     this.light = new Uint8Array(CHUNK_VOLUME);
     // Per column: lowest Y at and above which every cell is air.
     this.heightMap = new Uint8Array(CHUNK_SIZE * CHUNK_SIZE);
     this.minY = WORLD_HEIGHT; // lowest non-air Y (for fast meshing bounds)
     this.maxY = 0; // highest non-air Y
+
+    // Harvestable objects generated in this chunk (trees, plants…), and the
+    // saved state of any the player has harvested, keyed by record index.
+    this.harvestables = [];
+    this.harvestState = new Map();
+    // Building pieces placed in this chunk, keyed by pieceKey().
+    this.pieces = new Map();
 
     // Pipeline state: generated → lit → meshed.
     this.generated = false;
@@ -37,8 +55,15 @@ export class Chunk {
     this.waterMesh = null;
   }
 
-  getLocal(x, y, z) {
-    return this.blocks[blockIndex(x, y, z)];
+  /** Sets every cell's density from its material (full or empty). */
+  fillDensityFromMaterials() {
+    const { materials, density } = this;
+    for (let i = 0; i < CHUNK_VOLUME; i++) density[i] = defaultDensity(materials[i]);
+  }
+
+  /** Bytes of grid data held per chunk (for memory budgeting). */
+  get byteSize() {
+    return this.materials.byteLength + this.density.byteLength + this.light.byteLength + this.heightMap.byteLength;
   }
 
   /** Recomputes the height map and vertical non-air bounds. */
@@ -49,7 +74,7 @@ export class Chunk {
       for (let x = 0; x < CHUNK_SIZE; x++) {
         let top = 0;
         for (let y = WORLD_HEIGHT - 1; y >= 0; y--) {
-          if (this.blocks[blockIndex(x, y, z)] !== 0) {
+          if (this.materials[cellIndex(x, y, z)] !== MAT.AIR) {
             top = y + 1;
             break;
           }
@@ -61,7 +86,7 @@ export class Chunk {
     for (let y = 0; y < WORLD_HEIGHT && minY === WORLD_HEIGHT; y++) {
       const base = y * CHUNK_SIZE * CHUNK_SIZE;
       for (let i = 0; i < CHUNK_SIZE * CHUNK_SIZE; i++) {
-        if (this.blocks[base + i] !== 0) {
+        if (this.materials[base + i] !== MAT.AIR) {
           minY = y;
           break;
         }

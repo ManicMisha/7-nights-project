@@ -4,9 +4,9 @@
 // back exactly as they were left.
 
 import * as THREE from 'three';
-import { Chunk, chunkKey, blockIndex } from './chunk.js';
+import { Chunk, chunkKey, cellIndex } from './chunk.js';
 import { CHUNK_SIZE, WORLD_HEIGHT } from './config.js';
-import { MAT, MAT_SOLID } from './materials.js';
+import { MAT, MAT_SOLID, defaultDensity } from './materials.js';
 import { LightEngine } from './lighting.js';
 import { buildChunkGeometry } from './mesher.js';
 
@@ -16,7 +16,7 @@ export class World {
     this.generator = generator;
     this.materials = materials; // { terrain, water }
     this.chunks = new Map();
-    this.edits = new Map(); // chunkKey → Map(blockIndex → id)
+    this.edits = new Map(); // chunkKey → Map(cellIndex → id)
     this.light = new LightEngine(this);
     this.renderDistance = 6;
     this.frameBudgetMs = 7;
@@ -58,7 +58,7 @@ export class World {
     if (y >= WORLD_HEIGHT) return MAT.AIR;
     const chunk = this.getChunk(x >> 4, z >> 4);
     if (!chunk || !chunk.generated) return null;
-    return chunk.blocks[blockIndex(x & 15, y, z & 15)];
+    return chunk.materials[cellIndex(x & 15, y, z & 15)];
   }
 
   /** True if the cell blocks movement. Unloaded terrain counts as solid. */
@@ -73,7 +73,7 @@ export class World {
     if (y < 0) return 0;
     const chunk = this.getChunk(x >> 4, z >> 4);
     if (!chunk || !chunk.lit) return 0xf0;
-    return chunk.light[blockIndex(x & 15, y, z & 15)];
+    return chunk.light[cellIndex(x & 15, y, z & 15)];
   }
 
   /** Highest non-air block in a column (or -1). */
@@ -90,9 +90,10 @@ export class World {
     if (!chunk || !chunk.generated) return false;
     const lx = x & 15;
     const lz = z & 15;
-    const i = blockIndex(lx, y, lz);
-    if (chunk.blocks[i] === id) return false;
-    chunk.blocks[i] = id;
+    const i = cellIndex(lx, y, lz);
+    if (chunk.materials[i] === id) return false;
+    chunk.materials[i] = id;
+    chunk.density[i] = defaultDensity(id);
 
     let edits = this.edits.get(chunk.key);
     if (!edits) this.edits.set(chunk.key, (edits = new Map()));
@@ -124,7 +125,7 @@ export class World {
       if (y + 1 > chunk.heightMap[col]) chunk.heightMap[col] = y + 1;
     } else if (y + 1 === chunk.heightMap[col]) {
       let top = y;
-      while (top > 0 && chunk.blocks[blockIndex(lx, top - 1, lz)] === MAT.AIR) top--;
+      while (top > 0 && chunk.materials[cellIndex(lx, top - 1, lz)] === MAT.AIR) top--;
       chunk.heightMap[col] = top;
     }
   }
@@ -147,8 +148,14 @@ export class World {
   generateChunk(cx, cz) {
     const chunk = new Chunk(cx, cz);
     this.generator.generate(chunk);
+    chunk.fillDensityFromMaterials();
     const edits = this.edits.get(chunk.key);
-    if (edits) for (const [i, id] of edits) chunk.blocks[i] = id;
+    if (edits) {
+      for (const [i, id] of edits) {
+        chunk.materials[i] = id;
+        chunk.density[i] = defaultDensity(id);
+      }
+    }
     chunk.updateBounds();
     chunk.generated = true;
     this.chunks.set(chunk.key, chunk);

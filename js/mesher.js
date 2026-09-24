@@ -13,7 +13,7 @@ import {
   MAT, RENDER, MAT_RENDER, MAT_OPAQUE, MAT_TILES,
 } from './materials.js';
 import { CHUNK_SIZE, WORLD_HEIGHT } from './config.js';
-import { blockIndex } from './chunk.js';
+import { cellIndex } from './chunk.js';
 
 const P = CHUNK_SIZE + 2; // padded width
 const PY = WORLD_HEIGHT + 2; // padded height
@@ -144,9 +144,9 @@ function gatherPadded(world, chunk, y0, y1) {
         for (let z = zs; z <= ze; z++) {
           const pz = z + dz * CHUNK_SIZE;
           let pi = pidx(xs + dx * CHUNK_SIZE, y, pz);
-          let si = blockIndex(xs, y, z);
+          let si = cellIndex(xs, y, z);
           for (let x = xs; x <= xe; x++, pi++, si++) {
-            pBlocks[pi] = src ? src.blocks[si] : MAT.STONE;
+            pBlocks[pi] = src ? src.materials[si] : MAT.STONE;
             pLight[pi] = src ? src.light[si] : 0;
           }
         }

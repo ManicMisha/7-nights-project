@@ -101,15 +101,29 @@ for (const [id, name, render, solid, opaque, emit, atten, hardness, drop, tiles]
   MAT_TILES[id * 3 + 2] = tiles[2];
 }
 
+/** Density of a completely filled / completely empty cell. */
+export const DENSITY_FULL = 127;
+export const DENSITY_EMPTY = -127;
+
+/** Density a cell gets when it's set to `id` outright (full, or empty for air). */
+export function defaultDensity(id) {
+  return id === MAT.AIR ? DENSITY_EMPTY : DENSITY_FULL;
+}
+
+/**
+ * Materials left over from the block prototype, which later phases move out
+ * of the grid: trees and plants become harvestable objects (Phase 5);
+ * placed building blocks and lights become building pieces (Phase 6).
+ */
+export const MAT_LEGACY = new Uint8Array(N);
+for (const id of [
+  MAT.LOG, MAT.LEAVES, MAT.TALL_GRASS, MAT.RED_FLOWER, MAT.YELLOW_FLOWER, // → harvestables
+  MAT.PLANKS, MAT.COBBLESTONE, MAT.GLASS, MAT.BRICKS, MAT.TORCH, MAT.GLOWSTONE, // → building pieces
+]) {
+  MAT_LEGACY[id] = 1;
+}
+
 /** Blocks that can be replaced by placing another block into their cell. */
 export function isReplaceable(id) {
   return id === MAT.AIR || id === MAT.WATER || id === MAT.TALL_GRASS;
 }
-
-/** Blocks the player can pick and place (shown in the creative palette). */
-export const PLACEABLE_MATERIALS = [
-  MAT.GRASS, MAT.DIRT, MAT.STONE, MAT.COBBLESTONE, MAT.SAND, MAT.SANDSTONE,
-  MAT.GRAVEL, MAT.LOG, MAT.PLANKS, MAT.LEAVES, MAT.GLASS, MAT.BRICKS,
-  MAT.SNOW, MAT.COAL_ORE, MAT.IRON_ORE, MAT.GLOWSTONE, MAT.TORCH,
-  MAT.RED_FLOWER, MAT.YELLOW_FLOWER,
-];

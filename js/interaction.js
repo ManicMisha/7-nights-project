@@ -3,8 +3,9 @@
 
 import * as THREE from 'three';
 import {
-  MAT, MAT_HARDNESS, MAT_DROP, MAT_RENDER, MAT_SOLID, MAT_TILES, RENDER, isReplaceable,
+  MAT, MAT_HARDNESS, MAT_RENDER, MAT_SOLID, MAT_TILES, RENDER, isReplaceable,
 } from './materials.js';
+import { ITEM_PLACES, dropItem } from './items.js';
 import { PLAYER } from './config.js';
 import { intersectsBlock } from './physics.js';
 
@@ -131,13 +132,13 @@ export class BlockInteraction {
   breakBlock(t) {
     this.world.setMaterial(t.x, t.y, t.z, MAT.AIR);
     this.spawnParticles(t, 22);
-    const drop = MAT_DROP[t.id];
+    const drop = dropItem(t.id);
     if (drop) this.inventory.add(drop, 1);
     // Plants and torches resting on the broken block pop off too.
     const above = this.world.getMaterial(t.x, t.y + 1, t.z);
     if (above !== null && MAT_RENDER[above] === RENDER.CROSS) {
       this.world.setMaterial(t.x, t.y + 1, t.z, MAT.AIR);
-      if (MAT_DROP[above]) this.inventory.add(MAT_DROP[above], 1);
+      if (dropItem(above)) this.inventory.add(dropItem(above), 1);
     }
     this.breakProgress = 0;
     this.breakKey = '';
@@ -160,7 +161,8 @@ export class BlockInteraction {
     }
     const existing = this.world.getMaterial(x, y, z);
     if (existing === null || !isReplaceable(existing)) return;
-    const id = stack.id;
+    const id = ITEM_PLACES[stack.id];
+    if (!id) return;
     if (MAT_RENDER[id] === RENDER.CROSS) {
       // Torches and flowers need solid ground beneath them.
       const below = this.world.getMaterial(x, y - 1, z);

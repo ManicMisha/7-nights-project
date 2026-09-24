@@ -7,9 +7,17 @@
 // with the terrain shape. Caves are carved from interpolated 3D noise.
 
 import { MAT } from './materials.js';
-import { blockIndex } from './chunk.js';
+import { cellIndex } from './chunk.js';
 import { CHUNK_SIZE, SEA_LEVEL, WORLD_HEIGHT } from './config.js';
 import { SimplexNoise, hash2, hash3, smoothstep, lerp } from './noise.js';
+import { HARVESTABLE, makeHarvestable } from './harvestables.js';
+
+/**
+ * Bump whenever a change to generation alters existing terrain. Saves record
+ * the version that made their world, and a save from another version can't
+ * be loaded (its edits would land on different terrain).
+ */
+export const GENERATOR_VERSION = 1;
 
 export const BIOME = { OCEAN: 0, BEACH: 1, PLAINS: 2, MOUNTAINS: 3 };
 export const BIOME_NAME = ['Ocean', 'Beach', 'Plains', 'Mountains'];
@@ -30,6 +38,13 @@ function spline(points, x) {
   }
   return points[points.length - 1][1];
 }
+
+// Legacy materials that still draw each plant type (until Phase 5).
+const PLANT_MATERIAL = {
+  [HARVESTABLE.TALL_GRASS]: MAT.TALL_GRASS,
+  [HARVESTABLE.RED_FLOWER]: MAT.RED_FLOWER,
+  [HARVESTABLE.YELLOW_FLOWER]: MAT.YELLOW_FLOWER,
+};
 
 const PAD = 2; // columns sampled beyond the chunk edge so trees can cross borders
 const COLS = CHUNK_SIZE + PAD * 2;
@@ -84,7 +99,7 @@ export class TerrainGenerator {
     return { height, biome, mountain: m };
   }
 
-  /** Fills `chunk.blocks` for its position. */
+  /** Fills `chunk.materials` and `chunk.harvestables` for its position. */
   generate(chunk) {
     const baseX = chunk.cx * CHUNK_SIZE;
     const baseZ = chunk.cz * CHUNK_SIZE;
@@ -105,7 +120,7 @@ export class TerrainGenerator {
     this.sampleCaveField(baseX, baseZ, Math.min(WORLD_HEIGHT - 1, maxHeight + 2));
 
     // 3. Terrain column fill.
-    const blocks = chunk.blocks;
+    const mats = chunk.materials;
     for (let z = 0; z < CHUNK_SIZE; z++) {
       for (let x = 0; x < CHUNK_SIZE; x++) {
         const wx = baseX + x;
@@ -164,9 +179,9 @@ export class TerrainGenerator {
             }
           }
           if (y > 2 && y < caveCeiling && this.caveAt(x, y, z) > 0) id = MAT.AIR;
-          blocks[blockIndex(x, y, z)] = id;
+          mats[cellIndex(x, y, z)] = id;
         }
-        for (let y = height; y <= SEA_LEVEL; y++) blocks[blockIndex(x, y, z)] = MAT.WATER;
+        for (let y = height; y <= SEA_LEVEL; y++) mats[cellIndex(x, y, z)] = MAT.WATER;
       }
     }
 
@@ -181,7 +196,13 @@ export class TerrainGenerator {
         const wz = baseZ + z - PAD;
         const density = 0.003 + 0.04 * smoothstep(0.1, 0.6, this.forest.fbm2D(wx / 110, wz / 110, 2));
         if (hash2(wx, wz, seed ^ 0x7ee) >= density) continue;
-        this.placeTree(chunk, x - PAD, height, z - PAD, wx, wz);
+        const lx = x - PAD;
+        const lz = z - PAD;
+        const trunk = this.placeTree(chunk, lx, height, lz, wx, wz);
+        // The tree belongs to the chunk its trunk stands in.
+        if (lx >= 0 && lz >= 0 && lx < CHUNK_SIZE && lz < CHUNK_SIZE) {
+          chunk.harvestables.push(makeHarvestable(HARVESTABLE.OAK_TREE, lx, height, lz, trunk));
+        }
       }
     }
 
@@ -192,11 +213,15 @@ export class TerrainGenerator {
         if (this.colBiome[ci] !== BIOME.PLAINS && this.colBiome[ci] !== BIOME.MOUNTAINS) continue;
         const y = this.colHeight[ci];
         if (y >= WORLD_HEIGHT - 1) continue;
-        if (blocks[blockIndex(x, y - 1, z)] !== MAT.GRASS || blocks[blockIndex(x, y, z)] !== MAT.AIR) continue;
+        if (mats[cellIndex(x, y - 1, z)] !== MAT.GRASS || mats[cellIndex(x, y, z)] !== MAT.AIR) continue;
         const r = hash2(baseX + x, baseZ + z, seed ^ 0xdec);
-        if (r < 0.14) blocks[blockIndex(x, y, z)] = MAT.TALL_GRASS;
-        else if (r < 0.15) blocks[blockIndex(x, y, z)] = MAT.RED_FLOWER;
-        else if (r < 0.162) blocks[blockIndex(x, y, z)] = MAT.YELLOW_FLOWER;
+        let plant = 0;
+        if (r < 0.14) plant = HARVESTABLE.TALL_GRASS;
+        else if (r < 0.15) plant = HARVESTABLE.RED_FLOWER;
+        else if (r < 0.162) plant = HARVESTABLE.YELLOW_FLOWER;
+        if (!plant) continue;
+        mats[cellIndex(x, y, z)] = PLANT_MATERIAL[plant];
+        chunk.harvestables.push(makeHarvestable(plant, x, y, z));
       }
     }
   }
@@ -207,9 +232,9 @@ export class TerrainGenerator {
     const topY = baseY + trunk;
     const set = (x, y, z, id, overwrite) => {
       if (x < 0 || z < 0 || x >= CHUNK_SIZE || z >= CHUNK_SIZE || y < 0 || y >= WORLD_HEIGHT) return;
-      const i = blockIndex(x, y, z);
-      const cur = chunk.blocks[i];
-      if (overwrite || cur === MAT.AIR || cur === MAT.TALL_GRASS) chunk.blocks[i] = id;
+      const i = cellIndex(x, y, z);
+      const cur = chunk.materials[i];
+      if (overwrite || cur === MAT.AIR || cur === MAT.TALL_GRASS) chunk.materials[i] = id;
     };
     for (let y = topY - 3; y <= topY; y++) {
       const radius = y >= topY - 1 ? 1 : 2;
@@ -223,6 +248,7 @@ export class TerrainGenerator {
     }
     for (let y = baseY; y < topY; y++) set(lx, y, lz, MAT.LOG, true);
     set(lx, baseY - 1, lz, MAT.DIRT, true);
+    return trunk;
   }
 
   sampleCaveField(baseX, baseZ, maxY) {

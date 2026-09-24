@@ -1,6 +1,7 @@
-// 36-slot inventory (slots 0–8 are the hotbar) with stacking.
+// 36-slot inventory (slots 0–8 are the hotbar) with stacking. Slots hold
+// item ids (see items.js), never material ids.
 
-import { MAT } from './materials.js';
+import { ITEM, isItem } from './items.js';
 
 export const HOTBAR_SIZE = 9;
 export const INVENTORY_SIZE = 36;
@@ -23,8 +24,8 @@ export class Inventory {
 
   giveStarterKit() {
     const kit = [
-      [MAT.PLANKS, 64], [MAT.COBBLESTONE, 64], [MAT.TORCH, 32], [MAT.GLASS, 32],
-      [MAT.BRICKS, 64], [MAT.GLOWSTONE, 16], [MAT.LOG, 32], [MAT.SANDSTONE, 32], [MAT.DIRT, 32],
+      [ITEM.PLANKS, 64], [ITEM.COBBLESTONE, 64], [ITEM.TORCH, 32], [ITEM.GLASS, 32],
+      [ITEM.BRICKS, 64], [ITEM.GLOWSTONE, 16], [ITEM.LOG, 32], [ITEM.SANDSTONE, 32], [ITEM.DIRT, 32],
     ];
     kit.forEach(([id, count], i) => {
       this.slots[i] = { id, count };
@@ -112,5 +113,29 @@ export class Inventory {
     this.slots[index] = cursor;
     this.changed();
     return slot;
+  }
+
+  /** Plain data for saving: one [itemId, count] pair or null per slot. */
+  toJSON() {
+    return {
+      slots: this.slots.map((s) => (s ? [s.id, s.count] : null)),
+      selected: this.selected,
+    };
+  }
+
+  /** Restores saved contents. Unknown items and bad counts are dropped. */
+  load(data) {
+    this.slots = new Array(INVENTORY_SIZE).fill(null);
+    const saved = Array.isArray(data?.slots) ? data.slots : [];
+    for (let i = 0; i < INVENTORY_SIZE; i++) {
+      const entry = saved[i];
+      if (!Array.isArray(entry)) continue;
+      const [id, count] = entry;
+      if (isItem(id) && Number.isInteger(count) && count > 0) {
+        this.slots[i] = { id, count: Math.min(count, MAX_STACK) };
+      }
+    }
+    this.selected = Number.isInteger(data?.selected) ? data.selected : 0;
+    this.select(this.selected);
   }
 }
