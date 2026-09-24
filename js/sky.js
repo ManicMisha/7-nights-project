@@ -1,9 +1,8 @@
 // Day/night cycle: moves the sun and moon, blends sky/fog/light colours
 // through dawn, day, dusk and night, and drives the cloud layer.
 
+import * as THREE from 'three';
 import { sharedUniforms, createSkyMaterial, createCloudMaterial } from './shaders.js';
-
-const THREE = window.THREE;
 
 const C = (r, g, b) => new THREE.Color(r, g, b);
 const PALETTE = {

@@ -1,5 +1,6 @@
 // Entry point: wires the modules together and runs the game loop.
 
+import * as THREE from 'three';
 import { DEFAULT_SETTINGS, CHUNK_SIZE } from './config.js';
 import { hashSeed } from './noise.js';
 import { BLOCK_NAME } from './blocks.js';
@@ -17,7 +18,6 @@ import { WaterRenderer } from './water.js';
 import { UI } from './ui.js';
 import { Sound } from './sound.js';
 
-const THREE = window.THREE;
 const $ = (id) => document.getElementById(id);
 const SETTINGS_KEY = '7nights.settings';
 
@@ -49,7 +49,8 @@ class Game {
     this.settings = loadSettings();
     this.seedText = resolveSeed();
     this.state = 'loading'; // loading | menu | playing | inventory | dead
-    this.clock = new THREE.Clock();
+    this.timer = new THREE.Timer();
+    this.timer.connect(document); // resets the delta after the tab was hidden
     this.fps = 0;
     this.frameCount = 0;
     this.fpsTimer = 0;
@@ -91,7 +92,7 @@ class Game {
     this.bindMenu();
     this.onResize();
     window.addEventListener('resize', () => this.onResize());
-    this.renderer.setAnimationLoop(() => this.frame());
+    this.renderer.setAnimationLoop((time) => this.frame(time));
   }
 
   get fogFar() {
@@ -287,8 +288,9 @@ class Game {
     }
   }
 
-  frame() {
-    const dt = Math.min(0.05, this.clock.getDelta());
+  frame(time) {
+    this.timer.update(time);
+    const dt = Math.min(0.05, this.timer.getDelta());
     this.updateFps(dt);
 
     if (this.state === 'loading') {

@@ -1,11 +1,10 @@
 // First-person player: mouse look, walking/sprinting/jumping, swimming,
 // creative-style flight (double-tap Space), fall damage and health.
 
+import * as THREE from 'three';
 import { PLAYER, WORLD_HEIGHT } from './config.js';
 import { BLOCK } from './blocks.js';
 import { moveEntity, isInWater } from './physics.js';
-
-const THREE = window.THREE;
 
 export class Player {
   constructor(camera, world) {

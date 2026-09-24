@@ -2,11 +2,10 @@
 // night and in unlit caves at any time — hunt the player, take knockback,
 // and burn up when caught in daylight.
 
+import * as THREE from 'three';
 import { MOBS, WORLD_HEIGHT } from './config.js';
 import { BLOCK, BLOCK_SOLID } from './blocks.js';
 import { moveEntity, isInWater } from './physics.js';
-
-const THREE = window.THREE;
 
 function pixelTexture(pixels, palette) {
   const size = pixels.length;

@@ -2,9 +2,8 @@
 // same lighting + fog uniforms (owned by `sharedUniforms`) so the day/night
 // cycle updates everything by writing to one object.
 
+import * as THREE from 'three';
 import { SEA_LEVEL } from './config.js';
-
-const THREE = window.THREE;
 
 export const sharedUniforms = {
   uTime: { value: 0 },

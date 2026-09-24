@@ -3,10 +3,10 @@
 // tile), which avoids atlas bleeding while keeping everything in one draw
 // state. The same pixels are reused for hotbar icons and break particles.
 
+import * as THREE from 'three';
 import { TILES, BLOCK_RENDER, BLOCK_TILES, RENDER } from './blocks.js';
 import { mulberry32, hashSeed } from './noise.js';
 
-const THREE = window.THREE;
 export const TILE_SIZE = 32;
 const S = TILE_SIZE;
 
@@ -455,7 +455,7 @@ export class TextureLibrary {
         data.set(src, layer * S * S * 4 + y * S * 4);
       }
     });
-    const tex = new THREE.DataTexture2DArray(data, S, S, layers);
+    const tex = new THREE.DataArrayTexture(data, S, S, layers);
     tex.format = THREE.RGBAFormat;
     tex.type = THREE.UnsignedByteType;
     tex.magFilter = THREE.NearestFilter;

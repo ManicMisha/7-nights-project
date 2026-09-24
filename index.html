@@ -106,7 +106,9 @@
     <p id="error-text"></p>
   </div>
 
-  <script src="vendor/three.r128.min.js"></script>
+  <script type="importmap">
+    { "imports": { "three": "./vendor/three.module.min.js" } }
+  </script>
   <script type="module" src="js/main.js"></script>
 </body>
 </html>
