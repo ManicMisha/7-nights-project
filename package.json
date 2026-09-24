@@ -1,0 +1,12 @@
+{
+  "name": "7-nights",
+  "private": true,
+  "description": "7 Nights — a survival sandbox built with Three.js. Static site; no build step.",
+  "type": "module",
+  "scripts": {
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
