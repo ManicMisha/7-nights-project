@@ -137,57 +137,163 @@ export function createTerrainMaterial(textureArray) {
 }
 
 // ---------------------------------------------------------------------------
-// Smooth terrain (Surface Nets): flat palette colours for now; Phase 3 adds
-// stylized texturing. Smooth normals give soft sky shading, the grid light
-// gives cave darkness and torchlight, and a gentle world-space variation
-// keeps large areas from looking flat.
+// Smooth terrain (Surface Nets), stylized:
+//   • triplanar mapping of the painted class textures (terraintextures.js),
+//     so cliffs don't stretch; only projections and classes that matter
+//     are sampled, which keeps it cheap on integrated GPUs;
+//   • slope rules: grass slides off steep ground to soil, then rock; snow
+//     only settles on flat tops;
+//   • height-based blending between classes (edges follow the textures'
+//     height maps instead of a blurry cross-fade);
+//   • ore specks on coal and iron cells, so resources read from a distance;
+//   • grid light (caves, torches), soft ambient occlusion and a gentle
+//     sky/ground shading from the normal.
 // ---------------------------------------------------------------------------
 
-export function createSmoothTerrainMaterial() {
+export function createSmoothTerrainMaterial(terrainTexture) {
   return new THREE.ShaderMaterial({
-    uniforms: { ...sharedUniforms },
+    uniforms: {
+      ...sharedUniforms,
+      uTerrain: { value: terrainTexture },
+      uTexScale: { value: 1 / 3 }, // texture repeats per metre (one tile per 3 m)
+    },
     vertexShader: /* glsl */ `
-      attribute vec4 aColour;
+      attribute vec4 aMaterial;
       attribute vec4 aLight;
-      varying vec3 vColour;
-      varying float vAO;
-      varying vec2 vLight;
+      attribute vec2 aOre;
+      varying vec4 vMaterial;
+      varying vec4 vLight;
+      varying vec2 vOre;
       varying vec3 vNormal;
       varying vec3 vWorldPos;
+      varying vec3 vTint;
+
+      float hash13v(vec3 p) {
+        p = fract(p * 0.1031);
+        p += dot(p, p.zyx + 31.32);
+        return fract((p.x + p.y) * p.z);
+      }
+      float noise3v(vec3 p) {
+        vec3 i = floor(p);
+        vec3 f = fract(p);
+        f = f * f * (3.0 - 2.0 * f);
+        float a = mix(mix(hash13v(i), hash13v(i + vec3(1, 0, 0)), f.x), mix(hash13v(i + vec3(0, 1, 0)), hash13v(i + vec3(1, 1, 0)), f.x), f.y);
+        float b = mix(mix(hash13v(i + vec3(0, 0, 1)), hash13v(i + vec3(1, 0, 1)), f.x), mix(hash13v(i + vec3(0, 1, 1)), hash13v(i + vec3(1, 1, 1)), f.x), f.y);
+        return mix(a, b, f.z);
+      }
+
       void main() {
         vec4 wp = modelMatrix * vec4(position, 1.0);
         vWorldPos = wp.xyz;
-        vColour = aColour.rgb;
-        vAO = aColour.a;
-        vLight = aLight.xy;
+        // Gentle large-scale colour drift (40 m) and mottling (9 m), so wide
+        // meadows and cliffs aren't uniform and texture repetition is hidden.
+        // Low frequency, so per-vertex is plenty (and cheap).
+        float drift = noise3v(wp.xyz * 0.025);
+        float mottle = noise3v(wp.xyz * 0.11 + 7.0);
+        vTint = mix(vec3(0.94, 1.0, 0.92), vec3(1.05, 1.02, 0.94), drift) * (0.9 + 0.18 * mottle);
+        vMaterial = aMaterial;
+        vLight = aLight;
+        vOre = aOre;
         vNormal = normal;
         gl_Position = projectionMatrix * viewMatrix * wp;
       }
     `,
     fragmentShader: /* glsl */ `
+      precision highp sampler2DArray;
+      uniform sampler2DArray uTerrain;
+      uniform float uTexScale;
       ${COMMON}
-      varying vec3 vColour;
-      varying float vAO;
-      varying vec2 vLight;
+      varying vec4 vMaterial; // grass, soil, rock, sand
+      varying vec4 vLight;    // sky, block, snow, ambient occlusion
+      varying vec2 vOre;      // coal, iron
       varying vec3 vNormal;
       varying vec3 vWorldPos;
+      varying vec3 vTint;
 
-      float valueNoise3(vec3 p) {
-        vec3 i = floor(p);
-        vec3 f = fract(p);
-        f = f * f * (3.0 - 2.0 * f);
-        float a = mix(mix(hash13(i), hash13(i + vec3(1, 0, 0)), f.x), mix(hash13(i + vec3(0, 1, 0)), hash13(i + vec3(1, 1, 0)), f.x), f.y);
-        float b = mix(mix(hash13(i + vec3(0, 0, 1)), hash13(i + vec3(1, 0, 1)), f.x), mix(hash13(i + vec3(0, 1, 1)), hash13(i + vec3(1, 1, 1)), f.x), f.y);
-        return mix(a, b, f.z);
+      // Triplanar sample of one class layer. Gradients are computed outside the
+      // branches (textureGrad), so skipping projections doesn't break mipmapping.
+      vec2 uvX; vec2 uvY; vec2 uvZ;
+      vec2 dxX; vec2 dyX; vec2 dxY; vec2 dyY; vec2 dxZ; vec2 dyZ;
+      vec4 triplanar(float layer, vec3 bw) {
+        vec4 c = vec4(0.0);
+        if (bw.x > 0.0) c += textureGrad(uTerrain, vec3(uvX, layer), dxX, dyX) * bw.x;
+        if (bw.y > 0.0) c += textureGrad(uTerrain, vec3(uvY, layer), dxY, dyY) * bw.y;
+        if (bw.z > 0.0) c += textureGrad(uTerrain, vec3(uvZ, layer), dxZ, dyZ) * bw.z;
+        return c;
       }
 
       void main() {
         vec3 n = normalize(vNormal);
+        vec3 p = vWorldPos * uTexScale;
+        uvX = p.zy; uvY = p.xz; uvZ = p.xy;
+        dxX = dFdx(uvX); dyX = dFdy(uvX);
+        dxY = dFdx(uvY); dyY = dFdy(uvY);
+        dxZ = dFdx(uvZ); dyZ = dFdy(uvZ);
+
+        // Projection weights: sharp, so most pixels sample a single projection
+        // and only surfaces near 45° blend two or three. Far away, where the
+        // difference can't be seen, only the dominant projection is used.
+        vec3 bw = pow(abs(n), vec3(6.0));
+        bw /= bw.x + bw.y + bw.z;
+        float far = step(40.0, distance(vWorldPos, cameraPosition));
+        bw = max(bw - mix(0.15, 0.34, far), 0.0);
+        bw /= bw.x + bw.y + bw.z;
+
+        // Class weights, then the slope rules.
+        float w[5];
+        w[0] = vMaterial.x; w[1] = vMaterial.y; w[2] = vMaterial.z; w[3] = vMaterial.w; w[4] = vLight.z;
+        float up = n.y;
+        float slid = w[0] * (1.0 - smoothstep(0.5, 0.72, up));
+        // Mostly straight to rock, with a thin earthy lip at the edge.
+        float toSoil = smoothstep(0.42, 0.62, up) * 0.6;
+        w[0] -= slid; w[1] += slid * toSoil; w[2] += slid * (1.0 - toSoil);
+        float melt = w[4] * (1.0 - smoothstep(0.45, 0.7, up));
+        w[4] -= melt; w[2] += melt;
+
+        // Height-based blend over the classes that are present.
+        vec4 samples[5];
+        float best = -1.0;
+        float score[5];
+        for (int i = 0; i < 5; i++) {
+          score[i] = -1.0;
+          samples[i] = vec4(0.0);
+          if (w[i] < 0.08) continue; // too little to see; skip its texture fetches
+          samples[i] = triplanar(float(i), bw);
+          score[i] = w[i] + samples[i].a * 0.5;
+          best = max(best, score[i]);
+        }
+        vec3 albedo = vec3(0.0);
+        float total = 0.0;
+        for (int i = 0; i < 5; i++) {
+          float b = max(score[i] - (best - 0.18), 0.0);
+          albedo += samples[i].rgb * b;
+          total += b;
+        }
+        albedo /= max(total, 1e-4);
+
+        albedo *= vTint;
+
+        // Ore nuggets: chunky lumps with a lighter rim, scattered over coal and
+        // iron rock so resources read from a distance.
+        float ore = max(vOre.x, vOre.y);
+        if (ore > 0.05) {
+          vec3 q = vWorldPos * 2.2;
+          vec3 cell = floor(q);
+          vec3 centre = 0.3 + 0.4 * vec3(hash13(cell + 11.0), hash13(cell + 23.0), hash13(cell + 37.0));
+          float r = 0.2 + 0.12 * hash13(cell);
+          float d = length(fract(q) - centre);
+          float nugget = step(0.4, hash13(cell + 5.0)) * (1.0 - smoothstep(r - 0.03, r, d));
+          float rim = smoothstep(r - 0.1, r - 0.03, d);
+          bool coal = vOre.x > vOre.y;
+          vec3 core = coal ? toLinear(vec3(0.13, 0.13, 0.15)) : toLinear(vec3(0.86, 0.56, 0.32));
+          vec3 edge = coal ? toLinear(vec3(0.38, 0.38, 0.42)) : toLinear(vec3(1.0, 0.84, 0.6));
+          albedo = mix(albedo, mix(core, edge, rim), nugget * smoothstep(0.05, 0.4, ore));
+        }
+
         // Perceptual shading: full on top, softer on walls, darkest underneath.
         float hemi = 0.8 + 0.2 * n.y;
-        float variation = 0.93 + 0.1 * valueNoise3(vWorldPos * 0.35) + 0.04 * valueNoise3(vWorldPos * 1.7);
-        float shade = clamp(vAO * hemi * variation, 0.0, 1.2);
-        vec3 col = toLinear(vColour) * shadeLight(vLight.x, vLight.y) * pow(shade, 2.2);
+        float shade = clamp(vLight.w * hemi, 0.0, 1.0);
+        vec3 col = albedo * shadeLight(vLight.x, vLight.y) * pow(shade, 2.2);
         gl_FragColor = vec4(applyFog(col, vWorldPos, vLight.x), 1.0);
         #include <colorspace_fragment>
       }

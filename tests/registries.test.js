@@ -1,8 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  MAT, MAT_LEGACY, MAT_TERRAIN, MAT_COLOUR, defaultDensity, DENSITY_FULL, DENSITY_EMPTY,
+  MAT, MAT_LEGACY, MAT_TERRAIN, MAT_CLASS, MAT_ORE, TERRAIN_CLASS, TERRAIN_CLASS_COUNT, ORE,
+  defaultDensity, DENSITY_FULL, DENSITY_EMPTY,
 } from '../js/materials.js';
+import { paintTerrainLayers, TERRAIN_TEXTURE_SIZE } from '../js/terraintextures.js';
 import { ITEM, ITEM_PLACES, ITEM_NAME, PALETTE_ITEMS, dropItem, isItem } from '../js/items.js';
 import {
   PIECE, PIECE_DEFS, TIER, SLOT, pieceSlot, pieceKey, pieceKeyCell, pieceKeySlot, pieceMaxHealth, makePiece,
@@ -17,13 +19,44 @@ test('terrain is full by default; air, water and legacy blocks are empty terrain
   assert.equal(defaultDensity(MAT.PLANKS), DENSITY_EMPTY);
 });
 
-test('every terrain material has a colour and is not legacy', () => {
+test('terrain materials map to terrain classes; ores are marked', () => {
   for (let id = 0; id < 256; id++) {
     if (!MAT_TERRAIN[id]) continue;
     assert.equal(MAT_LEGACY[id], 0);
-    assert.ok(MAT_COLOUR[id * 3] + MAT_COLOUR[id * 3 + 1] + MAT_COLOUR[id * 3 + 2] > 0, `material ${id} has a colour`);
+    assert.ok(MAT_CLASS[id] < TERRAIN_CLASS_COUNT, `material ${id} has a terrain class`);
   }
   assert.equal(MAT_TERRAIN[MAT.WATER], 0);
+  assert.equal(MAT_CLASS[MAT.GRASS], TERRAIN_CLASS.GRASS);
+  assert.equal(MAT_CLASS[MAT.SANDSTONE], TERRAIN_CLASS.SAND);
+  assert.equal(MAT_ORE[MAT.COAL_ORE], ORE.COAL);
+  assert.equal(MAT_ORE[MAT.IRON_ORE], ORE.IRON);
+  assert.equal(MAT_ORE[MAT.STONE], ORE.NONE);
+});
+
+test('terrain textures are painted for every class, tile seamlessly and carry height', () => {
+  const layers = paintTerrainLayers();
+  const S = TERRAIN_TEXTURE_SIZE;
+  assert.equal(layers.length, TERRAIN_CLASS_COUNT);
+  for (const layer of layers) {
+    assert.equal(layer.length, S * S * 4);
+    // Opposite edges are close in colour, so the texture tiles without seams.
+    let diff = 0;
+    for (let i = 0; i < S; i++) {
+      for (let c = 0; c < 3; c++) {
+        diff += Math.abs(layer[(i * S) * 4 + c] - layer[(i * S + S - 1) * 4 + c]);
+        diff += Math.abs(layer[i * 4 + c] - layer[((S - 1) * S + i) * 4 + c]);
+      }
+    }
+    assert.ok(diff / (S * 6) < 18, `average edge difference ${diff / (S * 6)}`);
+    // The height channel isn't flat.
+    let min = 255;
+    let max = 0;
+    for (let i = 3; i < layer.length; i += 4) {
+      min = Math.min(min, layer[i]);
+      max = Math.max(max, layer[i]);
+    }
+    assert.ok(max - min > 40, 'height channel has relief');
+  }
 });
 
 test('terrain materials are not legacy; prototype leftovers are', () => {

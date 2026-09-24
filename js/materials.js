@@ -118,28 +118,25 @@ for (const id of [
 }
 
 /**
- * Flat colour per terrain material (sRGB hex, from the DESIGN.md palette).
- * Phase 2 draws terrain in these colours; Phase 3 adds stylized texturing.
+ * How each terrain material looks: its terrain class (which stylized
+ * texture it uses; see terraintextures.js) and, for ores, which kind of
+ * ore specks the shader scatters over the rock.
  */
-const TERRAIN_COLOURS = {
-  [MAT.GRASS]: 0x6cc24a,
-  [MAT.DIRT]: 0x9c6b43,
-  [MAT.STONE]: 0x8e9196,
-  [MAT.SAND]: 0xf2d99a,
-  [MAT.BEDROCK]: 0x4a4b50,
-  [MAT.GRAVEL]: 0x8a8580,
-  [MAT.SNOW]: 0xf4f8fc,
-  [MAT.COAL_ORE]: 0x5e6268,
-  [MAT.IRON_ORE]: 0xa08070,
-  [MAT.SANDSTONE]: 0xe0c98a,
-};
-/** sRGB colour bytes per material: [r, g, b] at id * 3. */
-export const MAT_COLOUR = new Uint8Array(N * 3);
-for (const [id, hex] of Object.entries(TERRAIN_COLOURS)) {
-  MAT_COLOUR[id * 3] = (hex >> 16) & 255;
-  MAT_COLOUR[id * 3 + 1] = (hex >> 8) & 255;
-  MAT_COLOUR[id * 3 + 2] = hex & 255;
+export const TERRAIN_CLASS = { GRASS: 0, SOIL: 1, ROCK: 2, SAND: 3, SNOW: 4 };
+export const TERRAIN_CLASS_COUNT = 5;
+export const ORE = { NONE: 0, COAL: 1, IRON: 2 };
+export const MAT_CLASS = new Uint8Array(N).fill(TERRAIN_CLASS.ROCK);
+export const MAT_ORE = new Uint8Array(N);
+for (const [id, cls] of [
+  [MAT.GRASS, TERRAIN_CLASS.GRASS], [MAT.DIRT, TERRAIN_CLASS.SOIL], [MAT.STONE, TERRAIN_CLASS.ROCK],
+  [MAT.SAND, TERRAIN_CLASS.SAND], [MAT.BEDROCK, TERRAIN_CLASS.ROCK], [MAT.GRAVEL, TERRAIN_CLASS.SOIL],
+  [MAT.SNOW, TERRAIN_CLASS.SNOW], [MAT.COAL_ORE, TERRAIN_CLASS.ROCK], [MAT.IRON_ORE, TERRAIN_CLASS.ROCK],
+  [MAT.SANDSTONE, TERRAIN_CLASS.SAND],
+]) {
+  MAT_CLASS[id] = cls;
 }
+MAT_ORE[MAT.COAL_ORE] = ORE.COAL;
+MAT_ORE[MAT.IRON_ORE] = ORE.IRON;
 
 /** Density of a completely filled / completely empty cell. */
 export const DENSITY_FULL = 127;

@@ -6,6 +6,7 @@ import { buildSmoothGeometry } from '../js/surfacenets.js';
 import { TerrainGenerator } from '../js/worldgen.js';
 import { hashSeed } from '../js/noise.js';
 import { sdfGenerator } from './helpers.js';
+import { MAT } from '../js/materials.js';
 
 function worldFrom(generator, radius = 1) {
   const w = new World(new THREE.Scene(), generator, {});
@@ -20,6 +21,37 @@ test('a flat floor meshes to one quad per column at the right height', () => {
   for (let i = 1; i < geo.position.length; i += 3) assert.ok(Math.abs(geo.position[i] - 10.25) < 0.02, `vertex at y=${geo.position[i]}`);
   // Normals point up.
   for (let i = 1; i < geo.normal.length; i += 3) assert.ok(geo.normal[i] > 120);
+  // Stone everywhere: every vertex is fully the rock class, with no snow or ore.
+  for (let v = 0; v < geo.vertexCount; v++) {
+    assert.deepEqual([...geo.material.slice(v * 4, v * 4 + 4)], [0, 0, 255, 0]);
+    assert.equal(geo.light[v * 4 + 2], 0);
+    assert.deepEqual([...geo.ore.slice(v * 2, v * 2 + 2)], [0, 0]);
+  }
+});
+
+test('vertices blend the classes of the terrain around them', () => {
+  // Left half grass, right half sand, meeting at x = 8.
+  const gen = sdfGenerator((x, y) => 10.25 - y);
+  const w = worldFrom({
+    generate(chunk) {
+      gen.generate(chunk);
+      for (let i = 0; i < chunk.materials.length; i++) {
+        if (chunk.materials[i] === MAT.STONE) chunk.materials[i] = chunk.cx * 16 + (i % 16) < 8 ? MAT.GRASS : MAT.SAND;
+      }
+    },
+  });
+  const geo = buildSmoothGeometry(w, w.getChunk(0, 0));
+  let mixed = 0;
+  for (let v = 0; v < geo.vertexCount; v++) {
+    const x = geo.position[v * 3];
+    const grass = geo.material[v * 4];
+    const sand = geo.material[v * 4 + 3];
+    assert.ok(Math.abs(grass + sand - 255) <= 2, 'weights sum to one');
+    if (x < 7) assert.ok(grass > 250, `grass at x=${x}`);
+    if (x > 9.5) assert.ok(sand > 250, `sand at x=${x}`);
+    if (grass > 20 && sand > 20) mixed++;
+  }
+  assert.ok(mixed > 0, 'there is a blended strip between them');
 });
 
 test('a sphere meshes into a closed, watertight surface', () => {
