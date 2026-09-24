@@ -458,6 +458,7 @@ export class TextureLibrary {
     const tex = new THREE.DataArrayTexture(data, S, S, layers);
     tex.format = THREE.RGBAFormat;
     tex.type = THREE.UnsignedByteType;
+    tex.colorSpace = THREE.SRGBColorSpace;
     tex.magFilter = THREE.NearestFilter;
     tex.minFilter = THREE.NearestMipmapLinearFilter;
     tex.generateMipmaps = true;
@@ -564,6 +565,7 @@ function buildCrackTextures() {
       ctx.stroke();
     }
     const tex = new THREE.CanvasTexture(c);
+    tex.colorSpace = THREE.SRGBColorSpace;
     tex.magFilter = THREE.NearestFilter;
     tex.minFilter = THREE.NearestFilter;
     tex.generateMipmaps = false;

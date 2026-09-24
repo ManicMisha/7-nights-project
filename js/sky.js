@@ -4,7 +4,8 @@
 import * as THREE from 'three';
 import { sharedUniforms, createSkyMaterial, createCloudMaterial } from './shaders.js';
 
-const C = (r, g, b) => new THREE.Color(r, g, b);
+// Palette values are authored in sRGB and stored as linear colours.
+const C = (r, g, b) => new THREE.Color().setRGB(r, g, b, THREE.SRGBColorSpace);
 const PALETTE = {
   dayTop: C(0.3, 0.52, 0.92),
   dayHorizon: C(0.66, 0.8, 0.97),
@@ -86,7 +87,7 @@ export class DayNightCycle {
     skyLight.lerp(PALETTE.duskSkyLight, sunset * 0.5);
     this.skyBrightness = 0.16 + 0.84 * this.daylight;
 
-    sharedUniforms.uSunColor.value.setRGB(1.0, 0.72 + 0.23 * smooth(0, 0.4, elevation), 0.45 + 0.4 * smooth(0, 0.4, elevation))
+    sharedUniforms.uSunColor.value.setRGB(1.0, 0.72 + 0.23 * smooth(0, 0.4, elevation), 0.45 + 0.4 * smooth(0, 0.4, elevation), THREE.SRGBColorSpace)
       .multiplyScalar(smooth(-0.05, 0.1, elevation));
     sharedUniforms.uFogColor.value.copy(this.horizon);
     sharedUniforms.uFogFar.value = farDistance;

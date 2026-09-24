@@ -1,6 +1,12 @@
 // GLSL for terrain, water, sky and clouds. All custom materials share the
 // same lighting + fog uniforms (owned by `sharedUniforms`) so the day/night
 // cycle updates everything by writing to one object.
+//
+// Colour management: textures are decoded from sRGB, all lighting and fog
+// maths happens in linear space, and every fragment shader ends with
+// <colorspace_fragment> to encode for the screen. Colour uniforms hold
+// linear values; literal colours in GLSL are written in sRGB and wrapped
+// in toLinear() so they read like the palette they came from.
 
 import * as THREE from 'three';
 import { SEA_LEVEL } from './config.js';
@@ -8,7 +14,7 @@ import { SEA_LEVEL } from './config.js';
 export const sharedUniforms = {
   uTime: { value: 0 },
   uSkyLightColor: { value: new THREE.Color(1, 1, 1) },
-  uBlockLightColor: { value: new THREE.Color(1.0, 0.8, 0.55) },
+  uBlockLightColor: { value: new THREE.Color().setRGB(1.0, 0.8, 0.55, THREE.SRGBColorSpace) },
   uAmbient: { value: 0.035 },
   uFogColor: { value: new THREE.Color(0.7, 0.8, 0.95) },
   uSunDir: { value: new THREE.Vector3(0, 1, 0) },
@@ -36,13 +42,22 @@ const COMMON = /* glsl */ `
     return fract((p.x + p.y) * p.z);
   }
 
+  vec3 toLinear(vec3 c) {
+    return pow(max(c, vec3(0.0)), vec3(2.2));
+  }
+
+  // Perceptual brightness (0–1) for a 0–1 light level.
   float lightCurve(float l) {
     return pow(l, 1.7);
   }
 
+  // Linear light reaching a surface. The curves are tuned perceptually, so
+  // each term is converted to linear before the (linear) light colours.
   vec3 shadeLight(float sky, float blk) {
     float flicker = 0.94 + 0.06 * sin(uTime * 9.0 + sin(uTime * 23.0));
-    return lightCurve(sky) * uSkyLightColor + lightCurve(blk) * uBlockLightColor * flicker + uAmbient;
+    return pow(lightCurve(sky), 2.2) * uSkyLightColor
+      + pow(lightCurve(blk), 2.2) * uBlockLightColor * flicker
+      + vec3(pow(uAmbient, 2.2));
   }
 
   // Atmospheric fog. Near the camera it is ray-marched through 4-block
@@ -56,7 +71,7 @@ const COMMON = /* glsl */ `
 
     if (uUnderwater > 0.5) {
       float f = 1.0 - exp(-dist * 0.11);
-      vec3 waterFog = vec3(0.04, 0.16, 0.32) * (uSkyLightColor * 0.9 + 0.1) * mix(0.1, 1.0, skyLight);
+      vec3 waterFog = toLinear(vec3(0.04, 0.16, 0.32)) * (uSkyLightColor * 0.9 + 0.1) * mix(0.1, 1.0, skyLight);
       return mix(col, waterFog, f);
     }
 
@@ -77,7 +92,7 @@ const COMMON = /* glsl */ `
     float sunAmount = pow(max(dot(dir, uSunDir), 0.0), 8.0);
     vec3 fogCol = uFogColor + uSunColor * sunAmount * 0.3;
     // Fog is lit by the sky: it fades to near-black deep inside caves.
-    fogCol *= mix(0.04, 1.0, lightCurve(skyLight));
+    fogCol *= pow(mix(0.04, 1.0, lightCurve(skyLight)), 2.2);
     return mix(col, fogCol, clamp(fog, 0.0, 1.0));
   }
 `;
@@ -113,8 +128,9 @@ export function createTerrainMaterial(textureArray) {
       void main() {
         vec4 tex = texture(uAtlas, vec3(vUv.xy, vUv.z));
         if (tex.a < 0.5) discard;
-        vec3 col = tex.rgb * shadeLight(vLight.x, vLight.y) * vLight.z;
+        vec3 col = tex.rgb * shadeLight(vLight.x, vLight.y) * pow(vLight.z, 2.2);
         gl_FragColor = vec4(applyFog(col, vWorldPos, vLight.x), 1.0);
+        #include <colorspace_fragment>
       }
     `,
   });
@@ -191,8 +207,9 @@ export function createWaterMaterial() {
         if (!gl_FrontFacing) {
           // Seen from below: the world above, refracted and tinted.
           vec2 s = waveSlope(vWorldPos.xz);
-          vec3 above = texture2D(uRefraction, screen + s * 0.12).rgb * vec3(0.5, 0.78, 0.95);
+          vec3 above = texture2D(uRefraction, screen + s * 0.12).rgb * toLinear(vec3(0.5, 0.78, 0.95));
           gl_FragColor = vec4(applyFog(above, vWorldPos, vLight.x), 1.0);
+          #include <colorspace_fragment>
           return;
         }
         vec3 viewVec = cameraPosition - vWorldPos;
@@ -219,7 +236,7 @@ export function createWaterMaterial() {
         vec3 light = shadeLight(vLight.x, vLight.y);
         vec3 refr = texture2D(uRefraction, refrUV).rgb;
         vec3 absorb = exp(-thickness * vec3(0.32, 0.11, 0.07));
-        vec3 deep = vec3(0.015, 0.07, 0.19) * light;
+        vec3 deep = toLinear(vec3(0.015, 0.07, 0.19)) * light;
         vec3 body = refr * absorb + deep * (1.0 - absorb);
 
         vec3 R = reflect(-V, N);
@@ -228,7 +245,7 @@ export function createWaterMaterial() {
           vec2 ruv = vReflCoord.xy / vReflCoord.w + N.xz * 0.04 * waveFade;
           refl = texture2D(uReflection, ruv).rgb;
         } else {
-          refl = mix(uSkyHorizon, uSkyTop, clamp(R.y, 0.0, 1.0)) * clamp(vLight.x * 1.2, 0.2, 1.0);
+          refl = mix(uSkyHorizon, uSkyTop, clamp(R.y, 0.0, 1.0)) * pow(clamp(vLight.x * 1.2, 0.2, 1.0), 2.2);
         }
 
         float fresnel = 0.02 + 0.98 * pow(1.0 - max(dot(N, V), 0.0), 5.0);
@@ -237,18 +254,18 @@ export function createWaterMaterial() {
 
         vec3 H = normalize(uSunDir + V);
         float spec = pow(max(dot(N, H), 0.0), 350.0) * 4.0 * smoothstep(0.0, 0.1, uSunDir.y);
-        col += uSunColor * spec * lightCurve(vLight.x);
+        col += uSunColor * spec * pow(lightCurve(vLight.x), 2.2);
 
         if (isTop) {
           float foamNoise = 0.6 + 0.4 * sin(vWorldPos.x * 3.1 + uTime * 1.7) * sin(vWorldPos.z * 2.7 - uTime * 1.3);
           float foam = (1.0 - smoothstep(0.0, 0.45, thickness)) * foamNoise;
-          col = mix(col, vec3(0.92, 0.96, 1.0) * light, foam * 0.55);
+          col = mix(col, toLinear(vec3(0.92, 0.96, 1.0)) * light, foam * 0.55);
         }
 
         gl_FragColor = vec4(applyFog(col, vWorldPos, vLight.x), 1.0);
+        #include <colorspace_fragment>
       }
     `,
-    extensions: { derivatives: true },
     side: THREE.DoubleSide,
   });
 }
@@ -300,7 +317,8 @@ export function createSkyMaterial() {
 
       void main() {
         if (uUnderwater > 0.5) {
-          gl_FragColor = vec4(vec3(0.04, 0.16, 0.32) * (uSkyLightColor * 0.9 + 0.1), 1.0);
+          gl_FragColor = vec4(pow(vec3(0.04, 0.16, 0.32), vec3(2.2)) * (uSkyLightColor * 0.9 + 0.1), 1.0);
+          #include <colorspace_fragment>
           return;
         }
         vec3 dir = normalize(vDir);
@@ -319,12 +337,12 @@ export function createSkyMaterial() {
         vec2 sp = vec2(dot(dir, right), dot(dir, up));
         float aboveHorizon = smoothstep(-0.02, 0.02, h);
         if (sunDot > 0.0 && max(abs(sp.x), abs(sp.y)) < 0.05) {
-          col = mix(col, vec3(1.0, 0.96, 0.82) * 1.6, aboveHorizon);
+          col = mix(col, pow(vec3(1.0, 0.96, 0.82), vec3(2.2)) * 1.6, aboveHorizon);
         }
         if (sunDot < 0.0 && max(abs(sp.x), abs(sp.y)) < 0.038) {
           vec2 cell = floor((sp + 0.038) / 0.076 * 6.0);
-          float crater = hash13(vec3(cell, 7.0)) > 0.72 ? 0.78 : 1.0;
-          col = mix(col, vec3(0.86, 0.89, 0.96) * crater, aboveHorizon);
+          float crater = hash13(vec3(cell, 7.0)) > 0.72 ? 0.58 : 1.0;
+          col = mix(col, pow(vec3(0.86, 0.89, 0.96), vec3(2.2)) * crater, aboveHorizon);
         }
 
         // Stars on a quantised direction grid.
@@ -337,6 +355,7 @@ export function createSkyMaterial() {
           }
         }
         gl_FragColor = vec4(col, 1.0);
+        #include <colorspace_fragment>
       }
     `,
     side: THREE.BackSide,
@@ -396,6 +415,7 @@ export function createCloudMaterial() {
         float fade = 1.0 - smoothstep(uFadeDistance * 0.5, uFadeDistance, dist);
         vec3 col = mix(uFogColor, uCloudColor, fade);
         gl_FragColor = vec4(col, 0.82 * fade);
+        #include <colorspace_fragment>
       }
     `,
     transparent: true,
