@@ -54,7 +54,7 @@ export class TestWorld {
   }
 }
 
-/** Fill function: solid stone for y < height, air above. */
+/** Fill function: solid stone for y < height, air above (full/empty densities). */
 export function flatStone(height) {
   return (chunk) => {
     for (let y = 0; y < height; y++) {
@@ -62,5 +62,7 @@ export function flatStone(height) {
         for (let x = 0; x < CHUNK_SIZE; x++) chunk.materials[cellIndex(x, y, z)] = MAT.STONE;
       }
     }
+    chunk.fillDensityFromMaterials();
   };
 }
+

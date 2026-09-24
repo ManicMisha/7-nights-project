@@ -7,7 +7,7 @@
 import * as THREE from 'three';
 import { Chunk, chunkKey, cellIndex } from './chunk.js';
 import { CHUNK_SIZE, WORLD_HEIGHT } from './config.js';
-import { MAT, MAT_SOLID, DENSITY_EMPTY, defaultDensity } from './materials.js';
+import { MAT, MAT_SOLID, MAT_TERRAIN, DENSITY_EMPTY, defaultDensity } from './materials.js';
 import { ChunkDelta, unpackMaterial, unpackDensity, encodeChunkDelta } from './save.js';
 import { LightEngine } from './lighting.js';
 import { buildChunkGeometry } from './mesher.js';
@@ -135,8 +135,9 @@ export class World {
 
   /**
    * Sets a cell's material and density, records the change for saving,
-   * updates lighting and synchronously re-meshes affected chunks. A cell
-   * whose density is ≤ 0 is empty, so it's stored as AIR.
+   * updates lighting and synchronously re-meshes affected chunks.
+   * Density describes terrain: terrain whose density drops to ≤ 0 is gone
+   * (the cell becomes AIR), and non-terrain materials never have density > 0.
    */
   setCell(x, y, z, material, density) {
     if (y < 0 || y >= WORLD_HEIGHT) return false;
@@ -144,9 +145,10 @@ export class World {
     if (!chunk || !chunk.generated) return false;
     let id = material;
     let d = Math.max(-127, Math.min(127, Math.round(density)));
-    if (id === MAT.AIR || d <= 0) {
-      id = MAT.AIR;
-      d = Math.min(d, 0);
+    if (MAT_TERRAIN[id]) {
+      if (d <= 0) id = MAT.AIR;
+    } else if (d > 0) {
+      d = DENSITY_EMPTY;
     }
     const lx = x & 15;
     const lz = z & 15;
@@ -208,8 +210,7 @@ export class World {
 
   generateChunk(cx, cz) {
     const chunk = new Chunk(cx, cz);
-    this.generator.generate(chunk);
-    chunk.fillDensityFromMaterials();
+    this.generator.generate(chunk); // fills materials, densities and harvestables
     // Re-apply the player's changes. The chunk shares the delta's piece and
     // harvest maps, so changes to either are recorded automatically.
     const delta = this.deltaFor(cx, cz);

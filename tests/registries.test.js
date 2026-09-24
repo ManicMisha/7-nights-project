@@ -1,16 +1,29 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { MAT, MAT_LEGACY, defaultDensity, DENSITY_FULL, DENSITY_EMPTY } from '../js/materials.js';
+import {
+  MAT, MAT_LEGACY, MAT_TERRAIN, MAT_COLOUR, defaultDensity, DENSITY_FULL, DENSITY_EMPTY,
+} from '../js/materials.js';
 import { ITEM, ITEM_PLACES, ITEM_NAME, PALETTE_ITEMS, dropItem, isItem } from '../js/items.js';
 import {
   PIECE, PIECE_DEFS, TIER, SLOT, pieceSlot, pieceKey, pieceKeyCell, pieceKeySlot, pieceMaxHealth, makePiece,
 } from '../js/pieces.js';
 import { HARVESTABLE, HARVESTABLE_DEFS } from '../js/harvestables.js';
 
-test('air is empty and everything else is full by default', () => {
-  assert.equal(defaultDensity(MAT.AIR), DENSITY_EMPTY);
+test('terrain is full by default; air, water and legacy blocks are empty terrain', () => {
   assert.equal(defaultDensity(MAT.STONE), DENSITY_FULL);
-  assert.equal(defaultDensity(MAT.WATER), DENSITY_FULL);
+  assert.equal(defaultDensity(MAT.GRASS), DENSITY_FULL);
+  assert.equal(defaultDensity(MAT.AIR), DENSITY_EMPTY);
+  assert.equal(defaultDensity(MAT.WATER), DENSITY_EMPTY);
+  assert.equal(defaultDensity(MAT.PLANKS), DENSITY_EMPTY);
+});
+
+test('every terrain material has a colour and is not legacy', () => {
+  for (let id = 0; id < 256; id++) {
+    if (!MAT_TERRAIN[id]) continue;
+    assert.equal(MAT_LEGACY[id], 0);
+    assert.ok(MAT_COLOUR[id * 3] + MAT_COLOUR[id * 3 + 1] + MAT_COLOUR[id * 3 + 2] > 0, `material ${id} has a colour`);
+  }
+  assert.equal(MAT_TERRAIN[MAT.WATER], 0);
 });
 
 test('terrain materials are not legacy; prototype leftovers are', () => {

@@ -1,8 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { TerrainGenerator, BIOME } from '../js/worldgen.js';
+import { TerrainGenerator, BIOME, GENERATOR_VERSION } from '../js/worldgen.js';
 import { Chunk, cellIndex } from '../js/chunk.js';
-import { MAT } from '../js/materials.js';
+import { MAT, MAT_TERRAIN } from '../js/materials.js';
 import { CHUNK_SIZE, SEA_LEVEL, WORLD_HEIGHT } from '../js/config.js';
 import { hashSeed } from '../js/noise.js';
 import { HARVESTABLE } from '../js/harvestables.js';
@@ -76,4 +76,43 @@ test('trees and plants are generated as harvestable records', () => {
     }
   }
   assert.ok(trees > 0 && plants > 0, `found ${trees} trees and ${plants} plants`);
+});
+
+test('density is positive exactly where terrain is (generator v2)', () => {
+  const gen = new TerrainGenerator(hashSeed('demo'));
+  for (const [cx, cz] of [[0, 0], [5, -3], [-8, 11], [20, 20]]) {
+    const chunk = new Chunk(cx, cz);
+    gen.generate(chunk);
+    for (let i = 0; i < chunk.materials.length; i++) {
+      const terrain = MAT_TERRAIN[chunk.materials[i]] === 1;
+      assert.equal(chunk.density[i] > 0, terrain, `cell ${i}: material ${chunk.materials[i]}, density ${chunk.density[i]}`);
+    }
+  }
+});
+
+test('water is open water, never sealed under terrain', () => {
+  const gen = new TerrainGenerator(hashSeed('demo'));
+  for (const [cx, cz] of [[0, 0], [-4, 2], [3, 9], [-12, -7]]) {
+    const chunk = new Chunk(cx, cz);
+    gen.generate(chunk);
+    for (let y = 0; y < SEA_LEVEL; y++) {
+      for (let z = 0; z < CHUNK_SIZE; z++) {
+        for (let x = 0; x < CHUNK_SIZE; x++) {
+          if (chunk.materials[cellIndex(x, y, z)] !== MAT.WATER) continue;
+          const above = chunk.materials[cellIndex(x, y + 1, z)];
+          assert.ok(above === MAT.WATER || above === MAT.AIR, `water at ${x},${y},${z} has ${above} above it`);
+        }
+      }
+    }
+  }
+});
+
+test('rivers wind through the land', () => {
+  const gen = new TerrainGenerator(hashSeed('demo'));
+  const seen = new Set();
+  for (let z = -2048; z < 2048; z += 24) {
+    for (let x = -2048; x < 2048; x += 24) seen.add(gen.columnInfo(x, z).biome);
+  }
+  assert.equal(GENERATOR_VERSION, 2);
+  for (const biome of Object.values(BIOME)) assert.ok(seen.has(biome), `found biome ${biome}`);
 });
