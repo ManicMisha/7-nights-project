@@ -17,8 +17,8 @@ stylized terrain and objects (see *Art style*).
 | 0 | Foundation: Three.js upgrade, colour management, tests, benchmark, flags, these docs | **Done** |
 | 1 | Data model: material + density grid, building pieces, harvestables, IndexedDB saves | **Done** |
 | 2 | Smooth terrain (Surface Nets) and new world generation | **Done** |
-| 3 | Stylized terrain look | Next |
-| 4 | Digging and terrain placement, tool tiers | Planned |
+| 3 | Stylized terrain look | **Done** |
+| 4 | Digging and terrain placement, tool tiers | Next |
 | 5 | Harvesting: trees, rocks, ore, plants | Planned |
 | 6 | Building pieces | Planned |
 | 6b | Survival loop: crafting, smelting, hunger, thirst, the 7 nights | Planned |
@@ -43,7 +43,7 @@ minified ES module and resolved through an import map in `index.html`, so
 | `flags.js` | Feature flags for unfinished systems |
 | `bench.js` | `?bench` benchmark mode and frame-time statistics |
 | `noise.js` | Seeded PRNG, simplex noise, fBm, hashes |
-| `materials.js` | What fills a grid cell: material registry as typed lookup tables, density constants |
+| `materials.js` | What fills a grid cell: material registry as typed lookup tables, terrain classes and ores, density constants |
 | `items.js` | What the player carries: item registry (stable ids), drops, the creative palette |
 | `pieces.js` | Building-piece types, tiers, cell slots and keys (gameplay in Phase 6) |
 | `harvestables.js` | Trees, plants, rocks and ore nodes: types, regrow times, records |
@@ -53,7 +53,8 @@ minified ES module and resolved through an import map in `index.html`, so
 | `storage.js` | IndexedDB reads and writes |
 | `persistence.js` | Load on start, restore the player, autosave, delete |
 | `lighting.js` | Sky and block light flood fill with incremental updates |
-| `surfacenets.js` | Smooth terrain mesh (Surface Nets) from the density grid: seamless across chunks, per-vertex light and AO |
+| `surfacenets.js` | Smooth terrain mesh (Surface Nets) from the density grid: seamless across chunks, per-vertex light, AO and terrain-class blend weights |
+| `terraintextures.js` | Stylized terrain textures painted in code from the palette (grass, soil, rock, sand, snow; alpha = height) |
 | `mesher.js` | Cube meshing for water and the legacy blocks (and all terrain when `smoothTerrain` is off) |
 | `world.js` | Chunk streaming (generate → light → mesh) under a frame budget, grid API (`getMaterial`, `getDensity`, `setCell`), deltas, raycast |
 | `shaders.js`, `sky.js`, `water.js` | Custom materials, day/night cycle, water passes |
@@ -181,6 +182,29 @@ still collide as boxes. The `smoothTerrain` flag (on by default;
 `?flags=-smoothTerrain` to compare) switches meshing and physics back to
 cubes. Remove it, and the cube-terrain paths, once nothing needs them.
 
+**D9: stylized terrain look (Phase 3).** Each terrain material belongs
+to a terrain class (grass, soil, rock, sand, snow; `MAT_CLASS`), and ores
+are rock plus an ore marker (`MAT_ORE`). The mesher gives every vertex
+blend weights for the classes of the terrain around it, weighted by how
+close each solid cell is, so materials fade into each other. The shader
+(`createSmoothTerrainMaterial`):
+- samples one painted 128×128 texture per class (`terraintextures.js`),
+  mapped triplanar at one tile per 3 m, so cliffs don't stretch;
+- applies slope rules: grass slides off steep ground (to a thin soil lip,
+  then rock), snow only settles on flat tops;
+- blends classes by the textures' height channel (alpha), so edges follow
+  pebbles and rock facets instead of cross-fading;
+- scatters chunky ore nuggets (dark coal, rusty-orange iron) on ore cells,
+  so resources read from a distance;
+- tints by low-frequency noise computed per vertex, which hides repetition.
+
+Cost control: projection weights are sharp, so most pixels sample one
+projection (only near-45° surfaces blend two); beyond 40 m only the
+dominant projection is used; classes under 8% weight are skipped. Measured
+with software rendering, the terrain costs about 15% more per frame than
+Phase 2's flat colours. Phase 11's Low preset should force a single
+projection and drop anisotropic filtering for integrated graphics.
+
 ## Saves
 
 - **Where:** IndexedDB database `7nights`, stores `worlds` (metadata, keyed
@@ -197,8 +221,10 @@ cubes. Remove it, and the cube-terrain paths, once nothing needs them.
 - **Compatibility rules:**
   - Changing the chunk or metadata format: bump its version, keep reading
     every older version (migrate on load), and add a test with an old buffer.
-  - Changing world generation so existing terrain changes: bump
-    `GENERATOR_VERSION` in `worldgen.js`. Saves from another generator
+  - Changing world generation so the *shape* of existing terrain changes:
+    bump `GENERATOR_VERSION` in `worldgen.js`. Changing only which material
+    shows at the surface (as Phase 3 did, turning slope dirt into grass)
+    doesn't need a bump: saved edits still line up with the terrain. Saves from another generator
     version are not loaded (their edits would land on different terrain).
     The player is told, starts fresh, and the old save is replaced.
     Phase 2 raised it to 2, so worlds saved during Phase 1 aren't loaded;
@@ -216,7 +242,7 @@ Measurements on seed `demo` at render distance 6. CPU timings are
 meaningful; the cloud sessions that take them only have software rendering,
 so FPS figures come from `?bench` on real hardware.
 
-| Metric | Phase 0 | Phase 1 | Phase 2 |
+| Metric | Phase 0 | Phase 1 | Phase 2 → 3 |
 |---|---|---|---|
 | Generate one chunk (median) | 0.7 ms | 0.96 ms incl. density fill (0.75 ms alone) | 2.1 ms (warping, rivers, cliffs, overhangs, ore veins) |
 | Light one chunk (median) | 1.8 ms | 1.6–2.1 ms | unchanged |
@@ -224,6 +250,7 @@ so FPS figures come from `?bench` on real hardware.
 | Triangles per chunk (terrain) | — | — | ~3.1k smooth vs ~3.2k as cubes |
 | Grid memory per chunk | 64 KiB | 96 KiB | unchanged |
 | Draw calls per frame | ~290 across 3 passes | unchanged | ~350–400 (a third mesh per chunk while legacy blocks remain) |
+| Terrain shading cost (software-rendered `?bench`) | — | — | Phase 3 textured terrain ≈ 15% slower per frame than Phase 2 flat colours (4.5 vs 5.3 fps under SwiftShader) |
 | Save size | — | 28 B per changed chunk + 4 B per edited cell | unchanged |
 
 Water costs two extra render passes per frame (reflection and refraction),
@@ -248,7 +275,9 @@ Raft or Minecraft (models, textures, UI, names, sounds).
 
 ### Palette
 
-Authored in sRGB. Phase 3 moves these values into code.
+Authored in sRGB. The same values live in code as `PALETTE` in
+`js/config.js`; keep the two in sync. Terrain textures are painted from
+them (`js/terraintextures.js`).
 
 | Role | Hex | Notes |
 |---|---|---|
